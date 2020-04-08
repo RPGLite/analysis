@@ -94,7 +94,8 @@ def find_actions(state):
                     target_1 = chars[i]
                 else:
                     target_2 = chars[i]
-        possible_actions += ["A_" + target_1]
+        if target_1 != "none":
+            possible_actions += ["A_" + target_1]
         if target_2 != "none":
             possible_actions += ["A_" + target_2]
             possible_actions += ["A_" + target_1 + target_2]
@@ -128,7 +129,7 @@ def find_conts(action):
 # lookup and deal with empty values
 def lookup(state):
     if state in state_probabilities.keys():
-        return state_probabilities[state]
+        return round(state_probabilities[state],5)
     return 0.0
 
 # take a state (string []) and an action (string). Return the probability of winning should that action be taken.
@@ -142,22 +143,23 @@ def appraise_move(state, action):
         missed += c + ","
     missed += result_state[-1]
     if action == "skip":        # Skip is easy, 1 * p(win) having missed.
-        if missed in state_probabilities.keys():
-            print("skip:", state_probabilities[missed])
-            return state_probabilities[missed]
-        else:                   # p(win) = 0 is ommitted. This is possible when facing a gunner and with only 1 health remaining.
-            print("skip: 0.0")
-            return 0.0
+        return lookup(missed)
     dmg, acc = find_conts(action)
     acc /= 100
     #  update damge for barbarian and rogue dependant on state.
-    if action[2] <= ROGUE_EXECUTE and action[0] == "R":
+    if int(result_state[9+chars.index(action[2])]) <= ROGUE_EXECUTE and action[0] == "R":
         dmg = ROGUE_EXECUTE
-    if state[7] < BARBARIAN_RAGE_THRESHOLD and action[0] == "B":
+    if int(result_state[7]) <= BARBARIAN_RAGE_THRESHOLD and action[0] == "B":
         dmg = BARBARIAN_RAGE_DAMAGE
     # change missed for gunner
     if action[0] == "G":
-        result_state[]
+        result_state[chars.index(action[2]) + 10] = \
+            str(max(0,int( result_state[chars.index(action[2]) + 10]) - GUNNER_MISS_DAMAGE))
+        missed = ""
+        for c in result_state[:-1]:
+            missed += c + ","
+        missed += result_state[-1]
+        dmg -= GUNNER_MISS_DAMAGE   # tidy up after ourselves so we don't do miss damage twice.
     result_state[chars.index(action[2]) + 10] = \
         str(max(0,int( result_state[chars.index(action[2]) + 10]) - dmg))
     # flip turn again for monk.
@@ -168,9 +170,8 @@ def appraise_move(state, action):
         result_state[-1] = str(chars.index(action[2]) + 1)
     # heal for healer
     if action[0] == "H" and len(action) > 3:
-        # N.B. not checking if health exceeds max. This will be an issue if heal increases above 1.
+        # N.B. not checking if health exceeds max. This wil be an issue if heal increases above 1.
         result_state[chars.index(action[3])+1] = str(int(result_state[chars.index(action[3])+1]) + HEALER_HEAL)
-
 
     # State as string if action successful.
     hit = ""
@@ -178,10 +179,30 @@ def appraise_move(state, action):
         hit += c + ","
     hit += result_state[-1]
     result = (lookup(hit)*acc) + (lookup(missed)* (1-acc))
-    # TODO: Archer with 2 additional outcomes.
-    return result
-
-
+    # Archer with 2 additional outcomes.
+    if action[0] == "A" and len(action) > 3:
+        hit_1 = hit
+        result_state = state.split(",")
+        result_state[0] = "2"
+        result_state[9] = "0"
+        # hit second char.
+        result_state[chars.index(action[3]) + 10] = \
+            str(max(0,int( result_state[chars.index(action[3]) + 10]) - dmg))
+        hit_2 = ""
+        for c in result_state[:-1]:
+            hit_2 += c + ","
+        hit_2 += result_state[-1]
+        # hit first char again
+        result_state[chars.index(action[2]) + 10] = \
+            str(max(0,int( result_state[chars.index(action[2]) + 10]) - dmg))
+        hit_both = ""
+        for c in result_state[:-1]:
+            hit_both += c + ","
+        hit_both += result_state[-1]
+        # redo result calc.
+        result = (acc*acc*lookup(hit_both)) + (acc*(1-acc)*lookup(hit_1)) + \
+            (acc*(1-acc)*lookup(hit_2)) + ((1-acc)*(1-acc)*lookup(missed))
+    return round(result,5)
 
 chars = ["K","A","W","R","H","M","B","G"]   # Order determined by lookup tables
 pairs = []
@@ -189,10 +210,7 @@ for i in range(8):
     for j in range(i+1,8):
         pairs += [chars[i]+chars[j]]
 
-# TESTING:
-pairs = ["KA"]
-
-for p in pairs:             # for each pair..
+for p in pairs[26:]:             # for each pair..
     with open("lookupV2/all_states/" + p + ".txt", "r") as f:
         state_probabilities = process_file(f.readlines())
         with open("lookupV2/" + p + ".txt", "w") as o:
@@ -200,6 +218,12 @@ for p in pairs:             # for each pair..
                 # for each state with an action decision for p1
                 if state.split(",")[0] == "1" and state_probabilities[state] > 0:
                     actions_available = find_actions(state)
-                    print(state)
-                    for action in actions_available:
-                        appraise_move(state, action)
+                    o.write(state + ":{")
+                    for i in range(len(actions_available)):
+                        r = appraise_move(state, actions_available[i])
+                        o.write(actions_available[i] + ":" + str(r))
+                        if i < len(actions_available) - 1:
+                            o.write(",")
+                        else:
+                            o.write("}\n")
+    print(p, "done.")
