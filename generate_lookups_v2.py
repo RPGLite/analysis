@@ -210,7 +210,7 @@ for i in range(8):
     for j in range(i+1,8):
         pairs += [chars[i]+chars[j]]
 
-for p in pairs[26:]:             # for each pair..
+for p in pairs:             # for each pair..
     with open("lookupV2/all_states/" + p + ".txt", "r") as f:
         state_probabilities = process_file(f.readlines())
         with open("lookupV2/" + p + ".txt", "w") as o:
