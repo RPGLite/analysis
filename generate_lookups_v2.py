@@ -102,13 +102,19 @@ def find_actions(state):
     if state[4] > 0 and state[8] != 5:  # Healer..
         for i in range(8):              # possible target
             if state[9+i] > 0:
+                heal_targets = []
                 for j in range(8):      # possible heal target
-                    if state[j] > 0:
-                        possible_actions += ["H_" + chars[i] + chars[j]]
+                    if state[j] > 0 and state[j] < max_health(chars[j]):
+                        heal_targets += [chars[j]]
+                if len(heal_targets) > 0:
+                    for t in heal_targets:
+                        possible_actions += ["H_" + chars[i] + t]
+                else:
+                    possible_actions += ["H_" + chars[i]]
     return possible_actions
 
 # return damage and accuracy based on action string
-def find_conts(action):
+def find_constants(action):
     if action[0] == "K":
         return KNIGHT_DAMAGE, KNIGHT_ACCURACY
     if action[0] == "A":
@@ -120,11 +126,21 @@ def find_conts(action):
     if action[0] == "H":
         return HEALER_DAMAGE, HEALER_ACCURACY
     if action[0] == "M":
-        return HEALER_DAMAGE, HEALER_ACCURACY
+        return MONK_DAMAGE, MONK_ACCURACY
     if action[0] == "B":
         return BARBARIAN_DAMAGE, BARBARIAN_ACCURACY
     if action[0] == "G":
-        return BARBARIAN_DAMAGE, BARBARIAN_ACCURACY
+        return GUNNER_DAMAGE, GUNNER_ACCURACY
+
+def max_health(c):
+    if c == "K": return KNIGHT_HEALTH
+    if c == "A": return ARCHER_HEALTH
+    if c == "W": return ARCHER_HEALTH
+    if c == "R": return ROGUE_HEALTH
+    if c == "H": return HEALER_HEALTH
+    if c == "M": return MONK_HEALTH
+    if c == "B": return BARBARIAN_HEALTH
+    if c == "G": return GUNNER_HEALTH
 
 # lookup and deal with empty values
 def lookup(state):
@@ -144,9 +160,9 @@ def appraise_move(state, action):
     missed += result_state[-1]
     if action == "skip":        # Skip is easy, 1 * p(win) having missed.
         return lookup(missed)
-    dmg, acc = find_conts(action)
+    dmg, acc = find_constants(action)
     acc /= 100
-    #  update damge for barbarian and rogue dependant on state.
+    #  update damage for barbarian and rogue dependant on state.
     if int(result_state[9+chars.index(action[2])]) <= ROGUE_EXECUTE and action[0] == "R":
         dmg = ROGUE_EXECUTE
     if int(result_state[7]) <= BARBARIAN_RAGE_THRESHOLD and action[0] == "B":
