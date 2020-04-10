@@ -388,3 +388,4 @@ def cost(state, pair, notation, data):
 
     # cost = positive difference between best move and move taken
     return max(m_d.values()) - m_d[move]
+
