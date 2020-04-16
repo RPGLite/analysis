@@ -5,6 +5,7 @@
 
 from pymongo import MongoClient
 from Constants import *
+import numpy as np
 
 
 client = MongoClient(
@@ -60,8 +61,9 @@ def search_opponent_pair(u1, u2):
                     elif "skip" not in part:
                         u1_rolls += [int(part)]
 
-    print(u1 + " had an average roll of: " + str(np.average(u1_rolls)))
-    print(u2 + " had an average roll of: " + str(np.average(u2_rolls)))
+    print(u1 + " had an average roll of: " + str(np.average(u1_rolls)) + " and a std of: " + str(np.std(u1_rolls)))
+    print(u2 + " had an average roll of: " + str(np.average(u2_rolls)) +
+          " and a std of: " + str(np.std(u2_rolls)))
     
     return(count, np.average(u1_rolls), np.average(u1_rolls))
 
