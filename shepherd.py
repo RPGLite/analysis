@@ -141,6 +141,13 @@ class Shepherd:
         '''
         return dict(map(lambda kv_tuple: (kv_tuple[0], len(kv_tuple[1])), self.completed_games_by_user().items()))
 
+    @pure
+    def games_user_completed(self, username):
+        '''
+        The list of games a user successfully completed. If user has completed no games or doesn't exist, returns None.
+        '''
+        return self.completed_games_by_user().get(username, None)
+
 
     @pure
     def number_properly_completed_games(self, username):
