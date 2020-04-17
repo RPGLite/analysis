@@ -99,31 +99,55 @@ class Shepherd:
 
     @pure
     def user_by_username(self, username):
+        '''
+        Give me a username and I'll give you the player document associated with it, or None if it doesn't exist.
+        '''
         matches = filter(lambda p: p['Username'] == username, self.actual_players())
         return None if matches is [] else matches[0]
 
     @pure
     def actual_players(self):
+        '''
+        I'm a list of things in the players collection that are actually players.
+        '''
         return list(filter(lambda p: 'Username' in p, self.cache['players']))
 
     @pure
     def users_by_filter(self, user_filter):
+        '''
+        @param user_filter: any callable (like a function or a lambda) which takes a user document from the database, and returns 'True' if you want me to return it, and 'False' if you don't.
+        @return: a list of user docs where the user_filter function/lambda has indicated it should be returned.
+        '''
         matches = filter(user_filter, self.actual_players())
         return list(matches)
 
     @pure
     def completed_games_by_user(self):
+        '''
+        A dictionary where keys are usernames and values are lists of good completed games by that user.
+        '''
         activity = dict()
         for game in filter(lambda g: not game_doc_was_abandoned(g), self.cache['completed_games']):
             if 'usernames' in game.keys():
-                activity[game['usernames'][0]] = activity.get(game['usernames'][0], 0) + 1
-                activity[game['usernames'][1]] = activity.get(game['usernames'][1], 0) + 1
+                activity[game['usernames'][0]] = activity.get(game['usernames'][0], []) + [game]
+                activity[game['usernames'][1]] = activity.get(game['usernames'][1], []) + [game]
 
         return activity
 
     @pure
+    def completed_game_count_by_user(self):
+        '''
+        The count of completed (good) games, by user.
+        '''
+        return dict(map(lambda kv_tuple: (kv_tuple[0], len(kv_tuple[1])), self.completed_games_by_user().items()))
+
+
+    @pure
     def number_properly_completed_games(self, username):
-        return self.completed_games_by_user().get(username, None)
+        '''
+        Give me a username and I'll give you how many completed games they've successfully accomplished.
+        '''
+        return self.completed_game_count_by_user().get(username, None)
 
 
     @pure
@@ -133,7 +157,7 @@ class Shepherd:
         @param games_limit: int limit of games a player has to complete to be included in the returned list
         '''
 
-        activity = self.completed_games_by_user()
+        activity = self.completed_game_count_by_user()
         useful_active_players = [username for username in activity.keys() if activity[username] > games_limit]
 
         return self.users_by_filter(lambda p: p['Username'] in useful_active_players)
@@ -154,4 +178,7 @@ class Shepherd:
 
     @pure
     def good_completed_games(self):
+        '''
+        Returns a list of all completed games that were not abandoned.
+        '''
         return list(filter(lambda g: not game_doc_was_abandoned(g), self.cache['completed_games']))
