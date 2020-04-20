@@ -342,7 +342,7 @@ def process_lookup2():
         lookup_d = {}
         with open("lookupV2/" + p + ".txt","r") as f:
             for l in f.readlines():
-                m_d = {}
+                # m_d = {}
                 moves = l.split(":{")[1].split("}")[0]
                 # for m in moves.split(","):
                 #     m_d[m.split(":")[0]] = float(m.split(":")[1])
@@ -352,7 +352,7 @@ def process_lookup2():
         print("done {0} {1}%".format(p, str(round(count/len(pairs)*100,3))))
     return r
         
-def cost(state, pair, notation, data):
+def cost(state, pair, notation, data, classify_mistake = False):
     """Finds the cost associated with a given move from a given state using supplied dictionary of all lookup values
     
     Arguments:
@@ -381,12 +381,17 @@ def cost(state, pair, notation, data):
             move = move[:2] + move[3] + move[2]
 
     if lookup not in data[pair]:
+        if classify_mistake:
+            return 0,0
         return float(0)
 
     moves = data[pair][lookup]
     m_d = {}
     for m in moves.split(","):
         m_d[m.split(":")[0]] = float(m.split(":")[1])
+
+    if classify_mistake:
+        return m_d[move], max(m_d.values())
 
     # cost = positive difference between best move and move taken
     return max(m_d.values()) - m_d[move]

@@ -163,7 +163,7 @@ def appraise_move(state, action):
     dmg, acc = find_constants(action)
     acc /= 100
     #  update damage for barbarian and rogue dependant on state.
-    if int(result_state[9+chars.index(action[2])]) <= ROGUE_EXECUTE and action[0] == "R":
+    if int(result_state[10+chars.index(action[2])]) <= ROGUE_EXECUTE and action[0] == "R":
         dmg = ROGUE_EXECUTE
     if int(result_state[7]) <= BARBARIAN_RAGE_THRESHOLD and action[0] == "B":
         dmg = BARBARIAN_RAGE_DAMAGE

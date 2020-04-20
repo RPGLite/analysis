@@ -53,6 +53,7 @@ for u in db.players.find({"Username":{"$exists": True}, "elo":{"$exists": True},
     # print("User:", u["Username"])
     # print("luck:", search_by_user(u["Username"]))
     # print("ELO:", u["elo"])
+    print(u["Username"])
     luck_l += [search_by_user(u["Username"])]
     elo_l += [u["elo"]]            
 
@@ -109,5 +110,5 @@ def search_opponent_pair(u1, u2):
                         
             
     
-#search_opponent_pair("Ellen", "cptKav")
+#print(search_opponent_pair("tanini", "creilly2"))
  

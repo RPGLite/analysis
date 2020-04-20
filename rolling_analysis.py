@@ -103,7 +103,7 @@ figs_per_row = 4
 total_days = max(results_by_day.keys())
 rows = math.ceil(total_days/figs_per_row)
 
-fig, ax = plt.subplots(nrows=rows, ncols=figs_per_row, figsize=(16,10))
+fig, ax = plt.subplots(nrows=rows+1, ncols=figs_per_row, figsize=(16,10))
 
 count = 0
 for a in ax.reshape(-1):
@@ -185,8 +185,8 @@ for a in ax.reshape(-1):
     n = range(total_days)
     a.axhline(y=0.0)
     a.axvline(x=0.125)
-    a.set_xlim([0.05,0.25])
-    a.set_ylim([-15, 15])
+    # a.set_xlim([0.05,0.25])
+    # a.set_ylim([-15, 15])
     if count > 5:
         a.set(xlabel="pick rate")
     if count % 2 == 0:
