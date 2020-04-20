@@ -4,6 +4,7 @@ from helper_fns import *
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+from bson import objectid
 
 data = process_lookup2()       
 
@@ -14,6 +15,8 @@ def flip_state(s):
 def find_avg_cost_per_move(user):
     costs = []
     for game in find_games_with_user(user):
+        if game["_id"] == objectid.ObjectId("5e98b4658a225cfc82573fd1"):
+            continue
         state = get_initial_state(game)
         user_pair = game["p1c1"][0] + game["p1c2"][0]
         if game["usernames"].index(user) == 1:

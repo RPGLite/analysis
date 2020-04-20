@@ -106,38 +106,57 @@ avg_opt = [0.4307,
            0.5706,
            0.5944]
 
+all_results = {}
+for p in old_pairs:
+    all_results[p] = {}
+    for p2 in old_pairs:
+        all_results[p][p2] = 0
+
 for g in db.completed_games.find({"winner": {"$exists": True}}):
     if g["Moves"][0][:2] == "p" + str(g["winner"]):
         won_by_first += 1
     pair = g["p1c1"][0]+g["p1c2"][0] if g["winner"] == 1 else g["p2c1"][0]+g["p2c2"][0]
+    opp_pair = g["p1c1"][0]+g["p1c2"][0] if g["winner"] == 2 else g["p2c1"][0]+g["p2c2"][0] # pair that lost.
     if pair not in old_pairs:
         pair = pair[1]+pair[0]
+    if opp_pair not in old_pairs:
+        opp_pair = opp_pair[1]+opp_pair[0]
     for p in pairs:
         if pair == p:
             results[p]["started"] += 1
             if g["Moves"][0][:2] == "p" + str(g["winner"]):
                 results[p]["won"] += 1
+    all_results[pair][opp_pair] += 1
      
      
 played = []
 actual = []
 expected = []   
 print(total, won_by_first, won_by_first/total)
-for p in pairs:
+for p in old_pairs:
+    for o in old_pairs:
+        if old_pairs.index(p) >= old_pairs.index(o):
+            if (all_results[o][p] + all_results[p][o]) == 0:
+                print(o, "and", p, "are yet to play against each other")
+            else:
+                continue
+                #print(str(o) + " has won against " +str(p)+ " on " + str(all_results[p][o]) + " out of " + str(all_results[o][p] + all_results[p][o]) + " occasions")
+
+
     #print(p, results[p], results[p]["won"]/results[p]["started"])
-    played += [results[p]["played"]]
-    actual += [results[p]["won"]]
-    expected += [results[p]["played"] * avg_opt]
+    # played += [results[p]["played"]]
+    # actual += [results[p]["won"]]
+    # expected += [results[p]["played"] * avg_opt]
      
-N = 28  # number of pairs
-fig, ax = plt.subplots()
-ind = np.arange(N)
-width = 0.35
-p1 = ax.bar(ind, played, width)
-p2 = ax.bar(ind+width, actual, width)
-p3 = ax.bar(ind+(2*width), expected, width)
-ax.autoscale_view()
-plt.show()
+# N = 28  # number of pairs
+# fig, ax = plt.subplots()
+# ind = np.arange(N)
+# width = 0.35
+# p1 = ax.bar(ind, played, width)
+# p2 = ax.bar(ind+width, actual, width)
+# p3 = ax.bar(ind+(2*width), expected, width)
+# ax.autoscale_view()
+# plt.show()
 
 # N = 5
 # menMeans = (150*cm, 160*cm, 146*cm, 172*cm, 155*cm)
