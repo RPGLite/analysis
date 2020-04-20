@@ -102,7 +102,7 @@ class Shepherd:
         '''
         Give me a username and I'll give you the player document associated with it, or None if it doesn't exist.
         '''
-        matches = filter(lambda p: p['Username'] == username, self.actual_players())
+        matches = list(filter(lambda p: p['Username'] == username, self.actual_players()))
         return None if matches is [] else matches[0]
 
     @pure
