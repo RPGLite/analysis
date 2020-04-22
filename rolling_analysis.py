@@ -101,9 +101,10 @@ for c in chars:
 
 figs_per_row = 4
 total_days = max(results_by_day.keys())
-rows = math.ceil(total_days/figs_per_row)
+rows = math.floor(total_days/figs_per_row)
 
-fig, ax = plt.subplots(nrows=rows+1, ncols=figs_per_row, figsize=(16,10))
+fig, ax = plt.subplots(nrows=rows+1, ncols=figs_per_row,
+                       figsize=(16, 10),  sharex='col', sharey='row')
 
 count = 0
 for a in ax.reshape(-1):
