@@ -5,6 +5,7 @@ from pprint import pprint
 from datetime import date
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 import datetime
 from Constants import *
@@ -50,18 +51,48 @@ for i in range(len(intervals)):
 
 
 
-fig, ax = plt.subplots(figsize=(16,12))
-games_plot = ax.plot(intervals,totals, "-", label = "games finished")
-users_plot = ax.plot([],[],"-r",label = "users registered")
+fig, ax = plt.subplots(figsize=(8,6))
+games_plot = ax.plot(intervals,totals, "-", label = "Games")
+users_plot = ax.plot([],[],"-r",label = "Users")
 ax2 = ax.twinx()
-ax2.plot(intervals,users, "-r", label = "users registered")
+ax2.plot(intervals,users, "-r", label = "Users")
 ax.legend(loc = 2)
-ax.set(ylabel="completed games", xlabel="date")
-ax2.set_ylabel("users")
-# matts_email = datetime.datetime(2020,4,9,13,57)
-# ax.axvline(x=matts_email)
-# ax.set(xlabel="time", ylabel="Number of games completed successfully")
-# ax.text(matts_email, 750,
-#        "Matt Barr", fontsize=20)
+ax.set(ylabel="Games", xlabel="Date")
+ax2.set_ylabel("Users")
+matts_email = datetime.datetime(2020,4,9,13,00)
+ax.axvline(x=matts_email, color="g", dashes = (5,2,1,2))
+ax.set(xlabel="Date", ylabel="Games")
+
+def add_30(d):
+    return d + datetime.timedelta(minutes=300)
+
+ax.text(add_30(matts_email), 4000,
+       "IGDA", fontsize=10)
+    
+csug = datetime.datetime(2020,4,16,14,00)
+ax.axvline(x=csug, color="g", dashes = (5,2,1,2))
+ax.text(add_30(csug), 3250,
+       "CS UG\nemail", fontsize=10)
+
+ld = datetime.datetime(2020,4,23,17,00)
+ax.axvline(x=ld, color="g", dashes = (5,2,1,2))
+ax.text(add_30(ld), 1500,
+       "UK enters\nlockdown", fontsize=10)
+
+s2 = datetime.datetime(2020,5,4,15,00)
+ax.axvline(x=s2, color="g", dashes = (5,2,1,2))
+ax.text(add_30(s2),1000,"season 2", fontsize=10)
+
+
+cose_email = datetime.datetime(2020,5,14,13,00)
+ax.axvline(x=cose_email, color="g", dashes = (5,2,1,2))
+ax.text(add_30(cose_email), 300,
+       "Sci/Eng\nemail", fontsize=10)
+
+
+ax.xaxis.set_major_locator(mdates.DayLocator(interval=10))   #to get a tick every 15 minutes
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m'))     #optional formatting
+fig.autofmt_xdate()
+
 plt.tight_layout()
 plt.show()    
