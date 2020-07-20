@@ -19,12 +19,12 @@ db = client.Game_data
 nums = []
 plays = []
 
-for i in range(0,600):
+for i in range(0,548):
     nums += [db.players.count_documents({"Played":{"$gt":i}})]
     plays += [i]
 
 fig, ax = plt.subplots(figsize=(8,3))
-ax.set(ylabel="Users", xlabel="Minimum games")
+ax.set(ylabel="Users", xlabel="Minimum games played")
 plt.plot(plays,nums)
 plt.tight_layout()
 plt.show()    

@@ -35,28 +35,28 @@ def find_avg_cost_per_move(user):
                 exit
     return np.average(costs)
 
+if __name__ == "__main__":
+    cost_l = []
+    elo_l = []
+    for u in db.players.find({"Username":{"$exists": True}, "elo":{"$exists": True}, "Played":{"$gt":0}}):
+        # print("User:", u["Username"])
+        # print("cost:", search_by_user(u["Username"]))
+        # print("ELO:", u["elo"])
+        c = find_avg_cost_per_move(u["Username"])
+        if not math.isnan(c):
+            cost_l += [c]
+            elo_l += [u["elo"]]
 
-cost_l = []
-elo_l = []
-for u in db.players.find({"Username":{"$exists": True}, "elo":{"$exists": True}, "Played":{"$gt":0}}):
-    # print("User:", u["Username"])
-    # print("cost:", search_by_user(u["Username"]))
-    # print("ELO:", u["elo"])
-    c = find_avg_cost_per_move(u["Username"])
-    if not math.isnan(c):
-        cost_l += [c]
-        elo_l += [u["elo"]]
+    print(np.average(cost_l))
 
-print(np.average(cost_l))
+    fig, ax = plt.subplots(figsize=(16,8))
+    ax.scatter(elo_l, cost_l)
+    z = np.polyfit(elo_l, cost_l, 1)
+    p = np.poly1d(z)
+    plt.plot(np.unique(elo_l), np.poly1d(np.polyfit(elo_l, cost_l, 1))(np.unique(elo_l)))
 
-fig, ax = plt.subplots(figsize=(16,8))
-ax.scatter(elo_l, cost_l)
-z = np.polyfit(elo_l, cost_l, 1)
-p = np.poly1d(z)
-plt.plot(np.unique(elo_l), np.poly1d(np.polyfit(elo_l, cost_l, 1))(np.unique(elo_l)))
-
-plt.axvline(x=1200)
-plt.axhline(y=np.average(cost_l))
-plt.xlabel("ELO")
-plt.ylabel("average cost per move")
-plt.show()
+    plt.axvline(x=1200)
+    plt.axhline(y=np.average(cost_l))
+    plt.xlabel("ELO")
+    plt.ylabel("average cost per move")
+    plt.show()

@@ -130,3 +130,8 @@ dmypy.json
 shepherd_cache.pickle
 lookupV2/
 images/
+
+
+## TOM ADDE
+*.pickle
+*/*.pickle
