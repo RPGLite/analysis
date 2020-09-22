@@ -17,9 +17,6 @@ class AspectHooks:
     post_rules = list()
     error_handling_rules = list()
     fuzzers = list()
-    manage_ordering = False
-    treat_rules_as_dynamic = False
-    rule_cache = dict()
 
     def __enter__(self, *args, **kwargs):
         self.old_import = __import__
@@ -38,13 +35,11 @@ class AspectHooks:
             class CouldNotFuzzException(Exception):
                 pass
 
-
-            old_target_code = copy.deepcopy(target.__code__)
-
             @wraps(target)
             def wrapper(*args, **kwargs):
 
-                pre, around, post, error_handlers, fuzzers = self.get_rules(target.__name__, AspectHooks.manage_ordering)
+                pre, around, post, error_handlers, fuzzers = self.get_rules(target.__name__)
+                old_target_code = copy.deepcopy(target.__code__)
 
                 def reset_code_to_previous():
                     if not isinstance(target, FunctionType):
@@ -142,56 +137,34 @@ class AspectHooks:
     def add_fuzzer(self, rule, advice, urgency=0):
         AspectHooks.fuzzers.append((re.compile(rule), advice, urgency))
 
-
-    def get_rules(self, methodname, manage_urgency):
-
-        if not AspectHooks.treat_rules_as_dynamic and methodname in AspectHooks.rule_cache:
-            return AspectHooks.rule_cache[methodname]
-
+    def get_rules(self, methodname):
         pre, around, post, error_handlers, fuzzers = list(), list(), list(), list(), list()
         for pattern, advice, urgency in AspectHooks.pre_rules:
             if pattern.match(methodname) is not None:
-                pre.append((advice, urgency) if manage_urgency else advice)
+                pre.append((advice, urgency))
 
         for pattern, advice, urgency in AspectHooks.around_rules:
             if pattern.match(methodname) is not None:
-                around.append((advice, urgency) if manage_urgency else advice)
+                around.append((advice, urgency))
 
         for pattern, advice, urgency in AspectHooks.post_rules:
             if pattern.match(methodname) is not None:
-                post.append((advice, urgency) if manage_urgency else advice)
+                post.append((advice, urgency))
 
         for pattern, advice, urgency in AspectHooks.error_handling_rules:
             if pattern.match(methodname) is not None:
-                error_handlers.append((advice, urgency) if manage_urgency else advice)
+                error_handlers.append((advice, urgency))
 
         for pattern, advice, urgency in AspectHooks.fuzzers:
             if pattern.match(methodname):
-                fuzzers.append((advice, urgency) if manage_urgency else advice)
-
-        if not manage_urgency:
-            if not AspectHooks.treat_rules_as_dynamic:
-                AspectHooks.rule_cache[methodname] = (pre, around, post, error_handlers, fuzzers)
-
-            return (pre, around, post, error_handlers, fuzzers)
+                fuzzers.append((advice, urgency))
 
         urgencykey = lambda ad_urg_tuple: -ad_urg_tuple[1]  # Negative so we get the highest urgency first
         first = lambda x: x[0]
         pre, around, post, error_handlers, fuzzers = sorted(pre, key=urgencykey), sorted(around, key=urgencykey), sorted(post, key=urgencykey), sorted(error_handlers, key=urgencykey), sorted(fuzzers, key=urgencykey)
         advice_functions = list(map(first, pre)), list(map(first, around)), list(map(first, post)), list(map(first, error_handlers)), list(map(first, fuzzers))
-
-        if not AspectHooks.treat_rules_as_dynamic:
-            AspectHooks.rule_cache[methodname] = advice_functions
-
         return advice_functions
 
-    @classmethod
-    def reset(cls):
-        AspectHooks.pre_rules = list()
-        AspectHooks.around_rules = list()
-        AspectHooks.post_rules = list()
-        AspectHooks.error_handling_rules = list()
-        AspectHooks.fuzzers = list()
 
     def __exit__(self, *args, **kwargs):
         builtins.__import__ = self.old_import

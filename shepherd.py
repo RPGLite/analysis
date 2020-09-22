@@ -48,7 +48,8 @@ class ShepherdConfig:
         # i.e. if you set remove_developers to be True, then any game involving developers will be discarded.
         self.filter_games_by_users = True
 
-        self.only_season_1 = True
+        self.only_season_1 = False
+        self.only_season_2 = False
 
 
 
@@ -265,6 +266,8 @@ class Shepherd:
 
         if self.config.only_season_1:
             current_game_set = filter(lambda game: 'balance_code' not in game, current_game_set)
+        elif self.config.only_season_2:
+            current_game_set = filter(lambda game: game.get('balance_code', None) == '1.2', current_game_set)
 
         for game_filter in self.config.game_filters:
             current_game_set = filter(game_filter, current_game_set)

@@ -1,27 +1,19 @@
 from shepherd import Shepherd, ShepherdConfig
-from time import sleep
-from pdsf import *
+from tom_models.base_model import *
 from copy import deepcopy
 from helper_fns import *
 from matplotlib import pyplot as plt
 from matplotlib.colors import BASE_COLORS as colours
 from matplotlib.colors import TABLEAU_COLORS as colours
 from pickle import load, dump
-from random import sample, seed
+from random import sample
 from math import log2
 from datetime import datetime
-from scipy.stats import chisquare, spearmanr
+from scipy.stats import chisquare
 
-seed(0)
-
-with AspectHooks():
-    from tom_models.base_model import *
-
-season = 1
 
 config = ShepherdConfig()
-config.only_season_1 = (season == 1)
-config.only_season_2 = (season == 2)
+config.only_season_1 = True
 config.remove_developers = True
 shepherd = Shepherd(load_cache_by_file=True,
                     config=config)
@@ -36,9 +28,8 @@ def flip_state(s):
 def process_lookup2():
     """Parses all lookup2 data into a dictionary and returns
     """
-    pickle_filename = 'lookupV2cache_season_' + str(season) + '.pickle'
     try:
-        with open(pickle_filename, 'rb') as cachefile:
+        with open('lookupV2cache.pickle', 'rb') as cachefile:
             return load(cachefile)
     except Exception as e:
         print(e)
@@ -47,14 +38,14 @@ def process_lookup2():
         count = 0.0
         for p in pairs:
             lookup_d = {}
-            with open("../lookupV2/season" + str(season) + "/" + p + ".txt","r") as f:
+            with open("../lookupV2/" + p + ".txt","r") as f:
                 for l in f.readlines():
                     moves = l.split(":{")[1].split("}")[0]
                     lookup_d[l.split(":")[0]] = moves
             r[p] = lookup_d
             count += 1.0
 
-        with open(pickle_filename, 'wb') as cachefile:
+        with open('lookupV2cache.pickle', 'wb') as cachefile:
             dump(r, cachefile)
 
         return r
@@ -273,7 +264,7 @@ def moving_average(datapoints, window_size=10):
 if __name__ == '__main__':
 
 
-    analysis_kind = ["simple", "by_char_played", "entropy", "char_bias", "improved char bias", "correlate random char bias", "correlate by proability distribution", "simulate based on exploration sigmoid"][7]
+    analysis_kind = ["simple", "by_char_played", "entropy", "char_bias", "improved char bias", "correlate random char bias", "correlate by proability distribution"][6]
     moving_average_window_size = 20
     most_active_players = top_s1_player_usernames_by_games_played(10)
     print(most_active_players)
@@ -502,7 +493,7 @@ if __name__ == '__main__':
 
     if analysis_kind == "correlate random char bias":
         results = list()
-        players_to_analyse = top_s1_player_usernames_by_games_played(15)
+        players_to_analyse = top_s1_player_usernames_by_games_played(5)
         games_played_collections = dict()  # maps usernames to list of games played, ordered by start time
         chi_table = dict()  # maps usernames to chi squared tables
         expected_table = dict()  # maps usernames to expected value lists
@@ -560,7 +551,7 @@ if __name__ == '__main__':
 
     if analysis_kind == "correlate by proability distribution":
         results = list()
-        players_to_analyse = top_s1_player_usernames_by_games_played(5)
+        players_to_analyse = top_s1_player_usernames_by_games_played(20)
         games_played_collections = dict()  # maps usernames to list of games played, ordered by start time
         chi_table = dict()  # maps usernames to chi squared tables
         expected_table = dict()  # maps usernames to expected value lists
@@ -574,12 +565,10 @@ if __name__ == '__main__':
 
         counts = dict()
         random_counts = dict()
-        simulated_counts = dict()
         for i in range(len(chars)):
             for j in range(i + 1, len(chars)):
                 counts[chars[i] + chars[j]] = 0
                 random_counts[chars[i] + chars[j]] = 0
-                simulated_counts[chars[i] + chars[j]] = 0
         for player in players_to_analyse:
             player_games = games_played_collections[player]
             for game in player_games:
@@ -592,299 +581,20 @@ if __name__ == '__main__':
                     firstchar, secondchar = secondchar, firstchar
 
                 # Increment the count for the actual games played
-                counts[firstchar+secondchar] += 1
+                counts[firstchar+secondchar] +=1
 
                 # Increment our random count here, so that by the end we have the same number of games in both counts
                 random_counts[choice(list(random_counts.keys()))] += 1
 
-
-
-        options = []
-        for charpair in counts.keys():
-            for _ in range(counts[charpair]):
-                options.append(charpair)
-
-        simulated_choices = []
-        def pick_chars_by_probability_dist(target, retval, *args, **kwargs):
-            # print("picking chars by distribution")
-            pair = choice(options)
-            simulated_choices.append(pair)
-            pair_instances = list()
-            char_class_map = {
-                "K": Knight,
-                "A": Archer,
-                "R": Rogue,
-                "W": Wizard,
-                "H": Healer,
-                "B": Barbarian,
-                "M": Monk,
-                "G": Gunner
-            }
-            for char in pair:
-                pair_instances.append(char_class_map[char]())
-
-            args[1][args[0]]['chars'] = pair_instances
-            return pair_instances
-
-        AspectHooks.add_encore('choose_chars', pick_chars_by_probability_dist)
-
-        # TODO: Make a bunch of simulated games, get their distribution, show it correlates with the numbers we picked up.
-        simulation_excess = 100
-        players = list(range(10))
-        env = dict()
-        print(len(options) * simulation_excess)
-        c = 0
-        while len(simulated_choices) < len(options)*simulation_excess:
-            c += 1
-            print(c)
-            try:
-                play_game(list(sample(players, 2)), env)
-            except KeyError:
-                print("==============\n=============\nHIT KEYERROR\n==========\n==========")
-                # sleep(1)
-            except Exception as e:
-                print(e)
-                raise e
-
-
-        # for game in env['games']:
-        #     choices = game[game['active player']]['chars']
-        #     pair = choices[0].__class__.__name__[0] + choices[1].__class__.__name__[0]
-        #     if pair not in counts.keys():
-        #         pair = pair[::-1]
-        #     simulated_counts[pair] += 1
-        for choice in simulated_choices:
-            simulated_counts[choice] += 1
-
         print("counts: " + str(counts))
         print("random_counts: " + str(random_counts))
-        print("simulated counts: " + str(simulated_counts))
-        observed, expected, simulated = list(), list(), list()
+        observed, expected = list(), list()
         for key in counts:
             observed.append(counts[key])
             expected.append(random_counts[key])
-            simulated.append(simulated_counts[key]/simulation_excess)
-
-        print(sum(observed))
-        print(sum(simulated))
-        print(sum(expected))
-
         print(str(chisquare(observed)))
-        print(str(chisquare(simulated, observed)))
-
-
-    elif analysis_kind == "simulate based on exploration sigmoid":
-        confidence_points = []
-        results = list()
-        players_to_analyse = top_s1_player_usernames_by_games_played(5)
-        games_played_collections = dict()  # maps usernames to list of games played, ordered by start time
-        chi_table = dict()  # maps usernames to chi squared tables
-        expected_table = dict()  # maps usernames to expected value lists
-        shepherd.config.game_filters.append(lambda g: g['usernames'][0] in players_to_analyse or g['usernames'][1] in players_to_analyse)
-        games = shepherd.filtered_games()
-        simulated_choices = list()
-        env = dict()
 
 
 
-        # Sort games into sets played per player
-        for game in list(sorted(games, key=lambda g: datetime.now()-g['start_time'])):
-            for user in game['usernames']:
-                games_played_collections[user] = games_played_collections.get(user, list()) + [game]
-
-        counts = dict()
-        random_counts = dict()
-        simulated_counts = dict()
-        for i in range(len(chars)):
-            for j in range(i + 1, len(chars)):
-                counts[chars[i] + chars[j]] = 0
-                random_counts[chars[i] + chars[j]] = 0
-                simulated_counts[chars[i] + chars[j]] = 0
-        for player in players_to_analyse:
-            player_games = games_played_collections[player]
-            for game in player_games:
-                playerstring = "1" if game['usernames'][0] == player else "2"
-                firstchar = game['p' + playerstring + 'c1'][0]
-                secondchar = game['p' + playerstring + 'c2'][0]
-
-                # Get the ordering consistent using William's char ordering.
-                if chars.index(firstchar) > chars.index(secondchar):
-                    firstchar, secondchar = secondchar, firstchar
-
-                # Increment the count for the actual games played
-                counts[firstchar+secondchar] += 1
-
-                # Increment our random count here, so that by the end we have the same number of games in both counts
-                random_counts[choice(list(random_counts.keys()))] += 1
 
 
-        options = []
-        for charpair in counts.keys():
-            for _ in range(counts[charpair]):
-                options.append(charpair)
-
-        simulation_excess = 1
-        player_count = 5
-        RGR_control = 5
-
-        initial_exploration = 14  # At least a chance to see every pair played.
-        sigmoid_initial_confidence = 0.1
-        c = _birch_shape_parameter = 1  # 1 for logistic curve
-        a = _relative_growth_rate = (RGR_control * player_count) / (simulation_excess * len(options))  # I suppose?
-        k = _upper_asymptote = 1
-
-
-        def games_played_by(player):
-            return len(list(filter(lambda g: player in g['players'], env['games'])))
-
-
-        def confidence_model(player, _env=None):
-            if _env is None:
-                _env = env
-
-            if 'confidence' not in _env: _env['confidence'] = dict()
-            y = _env['confidence'].get(player, sigmoid_initial_confidence)
-            _env['confidence'][player] = y + a * y * (k - y) / (k - y + c * y)
-
-            # for graphing the curve
-            if player == 2:
-                confidence_points.append(env['confidence'][player])
-
-            return games_played_by(player)  # TODO: make this a birch sigmoid representing confidence
-
-
-        def around_choosing_chars_based_on_sigmoid(next_around, target, _actor, _ctx, _env, **kwargs):
-
-
-            sigmoid_chose_to_play_winning_pair = random() < confidence_model(_actor, _env)
-
-            if sigmoid_chose_to_play_winning_pair and games_played_by(_actor) > initial_exploration:
-                # set winning pair based on the teams they've seen win
-                chosen_pair = choice(_env['winning teams'][_actor])
-                if chars.index(chosen_pair[0]) > chars.index(chosen_pair[1]):
-                    chosen_pair = chosen_pair[1] + chosen_pair[0]
-                simulated_choices.append(chosen_pair)
-                pair_instances = list()
-                char_class_map = {
-                    "K": Knight,
-                    "A": Archer,
-                    "R": Rogue,
-                    "W": Wizard,
-                    "H": Healer,
-                    "B": Barbarian,
-                    "M": Monk,
-                    "G": Gunner
-                }
-                for char in chosen_pair:
-                    pair_instances.append(char_class_map[char]())
-
-                _ctx[_actor]['chars'] = pair_instances
-                return pair_instances
-            else:
-                ret = next_around(target, _actor, _ctx, _env, **kwargs)
-                pair = ""
-                for char in _ctx[_actor]['chars']:
-                    pair += char.__class__.__name__[0]
-
-                if chars.index(pair[0]) > chars.index(pair[1]):
-                    pair = pair[1] + pair[0]
-                simulated_choices.append(pair)
-                return ret
-
-
-        def record_player_sees_winning_team(target, ret, players, _env, **kwargs):  # TODO fix signature
-            if 'winning teams' not in _env:
-                _env['winning teams'] = dict()
-
-            winning_pair = ""
-            for c in _env['games'][-1]["winning player"]:
-                winning_pair += c.__class__.__name__[0]
-
-            # if chars.index(winning_pair[0]) > chars.index(winning_pair[1]):
-            #     winning_pair = winning_pair[1] + winning_pair[0]
-            # simulated_choices.append(winning_pair)
-
-            for actor in players:
-                _env['winning teams'][actor] = _env['winning teams'].get(actor, list()) + [winning_pair]
-
-
-        def choose_best_moves(target, ret, *args, **kwargs):
-            '''
-            Replaces a set of possible moves from base_model.get_moves_from_table with the single best move, forcing that to be taken.
-            Args:
-                target: base_model.get_moves_from_table
-                ret: the list of best moves to be taken at the game's current state
-                *args: args for the function
-                **kwargs: keyword args for the function
-
-            Returns: a list containing only the best move of all moves in ret
-            '''
-            if random() > confidence_model(args[0]['active player'], env) or list(map(str, env['games'][-1]['moves'][-2:])) == ['skip', 'skip']:
-                return ret
-
-            sorted_moves = sorted(ret.items(), key=lambda move: -move[1])
-            return {sorted_moves[0][0]: sorted_moves[0][1]}
-
-
-        AspectHooks.add_around('choose_chars', around_choosing_chars_based_on_sigmoid)
-        AspectHooks.add_encore('play_game', record_player_sees_winning_team)
-        AspectHooks.add_encore('get_moves_from_table', choose_best_moves)
-
-
-        players = list(range(int(player_count/2)))
-        print(len(options) * simulation_excess)
-        c = 0
-        errors = 0
-        while len(simulated_choices) < len(options)*simulation_excess:
-            c += 1
-            print(c)
-            if c%100 == 0 and len(players) < player_count:
-                players.append(len(players))
-            try:
-                play_game(list(sample(players, 2)), env)
-            except KeyError as e:
-                print("==============\n=============\nHIT KEYERROR\n==========\n==========")
-                print(e)
-                errors += 1
-                if str(e).split(',').count('0') < 10:
-                    raise e
-                # sleep(1)
-            except Exception as e:
-                print(e)
-                raise e
-
-
-        # for game in env['games']:
-        #     choices = game[game['active player']]['chars']
-        #     pair = choices[0].__class__.__name__[0] + choices[1].__class__.__name__[0]
-        #     if pair not in counts.keys():
-        #         pair = pair[::-1]
-        #     simulated_counts[pair] += 1
-        for choice in simulated_choices:
-            simulated_counts[choice] += 1
-
-        observed, expected, simulated = list(), list(), list()
-        for key in counts:
-            observed.append(counts[key])
-            expected.append(random_counts[key])
-            simulated.append(simulated_counts[key]/simulation_excess)
-
-        print("counts: " + str(counts))
-        print("random_counts: " + str(random_counts))
-        print("simulated counts: " + str(simulated_counts))
-        print()
-        print("observed: " + str(observed))
-        print("random: " + str(expected))
-        print("simulated: " + str(simulated))
-
-        print(str(spearmanr(expected, observed)))
-        print(str(spearmanr(simulated, observed)))
-        print(str(chisquare(expected, observed)))
-        print(str(chisquare(simulated, observed)))
-
-        print()
-        print("errors:\t" + str(errors))
-
-        plt.plot(confidence_points)
-        plt.text(len(expected)*0.8, 0.1, 'players: ' + str(player_count) + "\nRGR control: " + str(RGR_control) + "\nsim excess: " + str(simulation_excess) + "\n" + str(spearmanr(simulated, observed)) + '\n' + str(chisquare(simulated, observed)), fontsize=12)
-        plt.show()
