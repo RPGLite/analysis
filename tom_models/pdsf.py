@@ -29,8 +29,7 @@ class AspectHooks:
     def final_around(self, target, *args, **kwargs):
         return target(*args, **kwargs)
 
-
-    def __import__(self, *args, **kwargs):
+    def __import__(self, *args, deep_apply=False, **kwargs):
         mod = self.old_import(*args, **kwargs)
 
         def build_wrapper(target):
@@ -113,10 +112,14 @@ class AspectHooks:
         def apply_hooks(target_object):
             for item_name in filter(lambda p: isinstance(p, str) and len(p) > 1 and p[:2] != "__", dir(target_object)):
                 item = getattr(target_object, item_name)
-                if isfunction(item) or ismethod(item):
-                    setattr(target_object, item_name, build_wrapper(item))
-                elif isclass(item):
-                    apply_hooks(item)
+
+                # Only apply if we're either specifically applying to things imported by this module too (`deep_apply`) or
+                # if it's from the original target module, `mod`
+                if (hasattr(item, "__module__") and item.__module__ == mod.__name__) or deep_apply:
+                    if isfunction(item) or ismethod(item):
+                        setattr(target_object, item_name, build_wrapper(item))
+                    elif isclass(item):
+                        apply_hooks(item)
 
         apply_hooks(mod)
 
@@ -124,23 +127,43 @@ class AspectHooks:
 
     @classmethod
     def add_prelude(cls, rule, advice, urgency=0):
-        AspectHooks.pre_rules.append((re.compile(rule), advice, urgency))
+        rule_tuple = (re.compile(rule), advice, urgency)
+        AspectHooks.pre_rules.append(rule_tuple)
+        return lambda : AspectHooks.pre_rules.remove(rule_tuple)
 
     @classmethod
     def add_around(cls, rule, advice, urgency=0):
-        AspectHooks.around_rules.append((re.compile(rule), advice, urgency))
+        rule_tuple = (re.compile(rule), advice, urgency)
+        AspectHooks.around_rules.append(rule_tuple)
+        return lambda : AspectHooks.around_rules.remove(rule_tuple)
 
     @classmethod
     def add_encore(cls, rule, advice, urgency=0):
-        AspectHooks.post_rules.append((re.compile(rule), advice, urgency))
+        rule_tuple = (re.compile(rule), advice, urgency)
+        AspectHooks.post_rules.append(rule_tuple)
+        return lambda : AspectHooks.post_rules.remove(rule_tuple)
 
     @classmethod
     def add_error_handler(cls, rule, advice, urgency=0):
-        AspectHooks.error_handling_rules.append((re.compile(rule), advice, urgency))
+        rule_tuple = (re.compile(rule), advice, urgency)
+        AspectHooks.error_handling_rules.append(rule_tuple)
+        return lambda : AspectHooks.error_handling_rules.remove(rule_tuple)
+
+    @classmethod
+    def remove(cls, rule_remover):
+        try:
+            rule_remover()
+            cls.rule_cache = dict()
+        except Exception as e:
+            print(e)
+            raise(e)
+
 
     @classmethod
     def add_fuzzer(self, rule, advice, urgency=0):
-        AspectHooks.fuzzers.append((re.compile(rule), advice, urgency))
+        rule_tuple = (re.compile(rule), advice, urgency)
+        AspectHooks.fuzzers.append(rule_tuple)
+        return lambda : AspectHooks.fuzzers.remove(rule_tuple)
 
 
     def get_rules(self, methodname, manage_urgency):

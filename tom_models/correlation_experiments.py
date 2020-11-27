@@ -20,6 +20,13 @@ with AspectHooks():
 
 season = 1
 
+iteration_num = []
+environment = dict()
+simulated_choices = list()
+correlation = None
+best_correlation = None
+best_config = None
+
 config = ShepherdConfig()
 config.only_season_1 = (season == 1)
 config.only_season_2 = (season == 2)
@@ -27,7 +34,6 @@ config.remove_developers = True
 shepherd = Shepherd(load_cache_by_file=True,
                     config=config)
 
-played = 0
 
 def change_season(newseason):
     global season, shepherd
@@ -44,8 +50,11 @@ def change_season(newseason):
 
 change_season(season)
 
-# === BEGIN copied and modified from cost_over_skill, which is William's work (and helper fns too)
-# Modified to use shepherd, and give the cost of all moves made
+
+played = 0
+
+# === BEGIN copied and modified from cost_over_skill, which is William's work
+# Modified to use shepherd — unused cruft deleted 20201027
 def flip_state(s):
     return [1] + s[10:] + s[1:10]
 
@@ -77,147 +86,52 @@ def process_lookup2():
         return r
 
 lookup_tables = process_lookup2()
-
-def get_costs_for_each_action(username, count_only_nonobvious_moves=True):
-    costs = []
-    shepherd.config.game_filters.append(lambda game: username in game['usernames'])
-    for game in shepherd.filtered_games():
-        curr_game_costs = []
-        # if game["_id"] == objectid.ObjectId("5e98b4658a225cfc82573fd1"):
-        #     continue
-        state = get_initial_state(game)
-        user_pair = game["p1c1"][0] + game["p1c2"][0]
-
-        if game["usernames"].index(username) == 1:
-            user_pair = game["p2c1"][0] + game["p2c2"][0]
-        if chars.index(user_pair[0]) > chars.index(user_pair[1]):
-            user_pair = user_pair[1] + user_pair[0]
-
-        for m in game["Moves"]:
-            if int(m[1]) - 1 == game["usernames"].index(username) and (is_significant(state) or not count_only_nonobvious_moves):
-
-                if m[1] == "1":
-                    curr_game_costs.append(cost(state, user_pair, m, lookup_tables))
-
-                else:
-                    curr_game_costs.append(cost(flip_state(state), user_pair, m, lookup_tables))
-
-            do_action(m, state)
-
-            if state[0] < 1 or state[0] > 1:
-                pass
-
-        costs.append(curr_game_costs)
-
-    shepherd.config.game_filters.pop()
-    return costs
 #=== END copied and modified from cost_over_skill, which is William's work
 
-def is_significant(state):
-    return 16-(state[1:9]+state[10:-1]).count(0) >= 2
-
-def costs_with_charpair_played(username, count_only_nonobvious_moves=True):
-    costs = list()
-    pairs = list()
-    shepherd.config.game_filters.append(lambda game: username in game['usernames'])
-
-    game_counter = 0
-    for game in shepherd.filtered_games():
-        costs.append(list())
-
-        # Make the userpair, conforming to William's stringbuilding style
-        playerstr = "p1" if game["usernames"][0] == username else "p2"
-        user_pair = game[playerstr + "c1"][0] + game[playerstr + "c2"][0]
-        if chars.index(user_pair[0]) > chars.index(user_pair[1]):
-            user_pair = user_pair[1] + user_pair[0]
-        pairs.append(user_pair)
-
-        state = get_initial_state(game)
-
-        # # Get the cost of each move this player made, and add it to the moves in the costs dict
-        # for move in game["Moves"]:
-        #     if playerstr[1] == move[1] and (count_only_nonobvious_moves or is_significant(state)):
-        #
-        #         state = flip_state(state) if move[1] == "1" else state
-        #         costs[-1].append(cost(state, user_pair, move, lookup_tables))
-        #
-        #     do_action(move, state)
-
-        for m in game["Moves"]:
-            if int(m[1]) - 1 == game["usernames"].index(username) and (is_significant(state) or not count_only_nonobvious_moves):
-
-                if m[1] == "1":
-                    costs[-1].append(cost(state, user_pair, m, lookup_tables))
-
-                else:
-                    costs[-1].append(cost(flip_state(state), user_pair, m, lookup_tables))
-
-            do_action(m, state)
-
-            if state[0] < 1 or state[0] > 1:
-                pass
+def generate_simulated_choice_recorder(counts, simulated_choices):
+    def record_simulated_choices(target, ret, players, _env, **kwargs):
+        global environment, simulated_choices
+        completed_game = environment['games'][-1]
+        char_pairs = [completed_game[player]['chars'] for player in completed_game['players']]
+        char_pairs = map(lambda pair: pair[0].__class__.__name__[0] + pair[1].__class__.__name__[0], char_pairs)
+        char_pairs = list(map(lambda pair: pair if pair in counts.keys() else pair[1] + pair[0], char_pairs))
+        for pair in char_pairs:
+            simulated_choices.append(pair)
+    return record_simulated_choices
 
 
-    shepherd.config.game_filters.pop()
-    return costs, pairs
-
-
-def convert_gamedoc_to_tom_compatible(gamedoc):
-    new_gamedoc = deepcopy(gamedoc)
-
-    new_gamedoc['players'] = gamedoc['usernames']
-    new_gamedoc[gamedoc['usernames'][0]] = dict()
-    new_gamedoc[gamedoc['usernames'][1]] = dict()
-    new_gamedoc[gamedoc['usernames'][0]]['chars'] = [gamedoc['p1c1'], gamedoc['p1c2']]
-    new_gamedoc[gamedoc['usernames'][1]]['chars'] = [gamedoc['p2c1'], gamedoc['p2c2']]
-
-    return new_gamedoc
-
-def convert_move_to_optimality_table_format(movestring):
+def choose_best_moves(target, ret, *args, **kwargs):
     '''
-    Takes a move of a form like "p1Hp2Wp1H_15" and converts it to the format William uses in his optimality tables, like
-    "H_WH"
+    Replaces a set of possible moves from base_model.get_moves_from_table with the single best move, forcing that to be taken.
     Args:
-        movestring:
+        target: base_model.get_moves_from_table
+        ret: the list of best moves to be taken at the game's current state
+        *args: args for the function
+        **kwargs: keyword args for the function
 
-    Returns:
-
+    Returns: a list containing only the best move of all moves in ret
     '''
+    global environment
+    gamedoc = args[0]
+    if 'played count' not in environment:
+        environment['played count'] = dict()
+    environment['played count'][gamedoc["players"][0]] = environment['played count'].get(gamedoc["players"][0], 0) + 1
+    environment['played count'][gamedoc["players"][1]] = environment['played count'].get(gamedoc["players"][0], 0) + 1
 
-    # Skipping is always 'skip' in the tables
-    if 'skip' in movestring:
-        return 'skip'
+    if list(map(str, gamedoc.get('moves', [None, None])[-2:])) == ['skip', 'skip']:
+        return ret
 
-    # We're not skipping! OK.
-    # The third char is the one being selected.
-    char_moving = movestring[2]
-    target = movestring[5]
-    move_base = char_moving + "_" + target
+    sorted_moves = sorted(ret.items(), key=lambda move: -move[1])
+    return {sorted_moves[0][0]: sorted_moves[0][1]}
 
-    possible_class_names = 'KARHWBMG'
 
-    # Special targeting rules for archer or for healer, so their strings are different.
-    if char_moving == 'A':
-        # We don't know where the second position is; it could be missing, position 10, or position 11. Try them all.
-        if len(movestring) < 10:
-            # We didn't target a second time; return as a normal movestring.
-            return move_base
-        elif movestring[10] in possible_class_names:
-            second_target = movestring[10]
-        elif movestring[11] in possible_class_names:
-            second_target = movestring[11]
-        return move_base + second_target
+def games_played_by(player, _env):
+    global environment
+    if 'played by' not in environment or player not in environment['played by']:
+        return 0
+    return environment['played by'][player]
+    # return len(list(filter(lambda g: player in g['players'], environment['games'])))
 
-    if char_moving == 'H':
-        if len(movestring) > 8 and movestring[8] in possible_class_names:
-            heal_target = movestring[8]
-            return move_base + heal_target
-        else:
-            # If the healer doesn't pick a heal target, they're parsed like a normal char, so ignore this and return normally.
-            return move_base
-
-    # We have a normal move string! Parse it regularly.
-    return move_base
 
 def top_s1_player_usernames_by_games_played(num_players=10):
     games = shepherd.filtered_games()
@@ -228,74 +142,7 @@ def top_s1_player_usernames_by_games_played(num_players=10):
     sorted_players = sorted(counts.items(), key=lambda kv_pair: -kv_pair[1])
     return list(map(lambda kv_pair: kv_pair[0], sorted_players))[:num_players]
 
-def get_games_for_player(username):
-    shepherd.config.game_filters.append(lambda game: username in game['usernames'])
-    ret = shepherd.filtered_games()
-    shepherd.config.game_filters.pop()
-    return ret
-
-def list_of_move_costs_for_user(username):
-    games = get_games_for_player(username)
-    games = map(convert_gamedoc_to_tom_compatible, games)
-
-    for game in games:
-        moves = get_moves_from_table(game)
-
-
-def line_of_best_fit(dependant_var_points, x_vals=None, supply_func=False):
-    '''
-    Calculates a naive line of best fit for the datapoints.
-    Args:
-        dependant_var_points: The y values for the values being plotted.
-        x_vals: the x values for the dependant variable datapoints supplied, assuming they're not 1...n
-
-    Returns:
-
-    '''
-
-    if x_vals is None:
-        x_vals = list(range(1, len(dependant_var_points) + 1))
-
-    xbar = sum(x_vals) / len(x_vals)
-    ybar = sum(dependant_var_points) / len(dependant_var_points)
-    n = len(x_vals)  # or len(dependant_var_points)
-
-    numer = sum([xi * yi for xi, yi in zip(x_vals, dependant_var_points)]) - n * xbar * ybar
-    denum = sum([xi ** 2 for xi in x_vals]) - n * xbar ** 2
-
-    b = numer / denum
-    a = ybar - b * xbar
-
-    if supply_func:
-        return lambda x: a + b*x
-
-    return a, b
-
-
-def windowed_entropy(datapoints, window_size=50):
-    def prob(x, window):
-        return float(window.count(x))/float(len(window))
-
-    ret = list()
-    for i in range(len(datapoints)-window_size):
-        window = datapoints[i:i+window_size]
-        ret.append(-sum(list(map(lambda x: prob(x, window)*log2(prob(x, window)), window))))
-
-    return ret
-
-
-def moving_average(datapoints, window_size=10):
-    return [sum(datapoints[i:i+window_size])/window_size for i in range(len(datapoints)-window_size)]
-
-iteration_num = []
-environment = dict()
-simulated_choices = list()
-correlation = None
-best_correlation = None
-best_config = None
-
-
-def multiple_iter(*args, print_progress=True, iterations=20, rand_seed=0, write_results=True, **kwargs):
+def multiple_iterations_of_simulation_with_config(*args, print_progress=True, iterations=20, rand_seed=0, write_results=True, **kwargs):
     results = list()
     num_iterations = iterations
 
@@ -392,15 +239,6 @@ def run_experiment_with_sigmod_parameters(*args, print_progress=True, return_kin
     # a = _relative_growth_rate = RGR_control * player_count / len(options) # We want the curve to take roughly len(options) iterations to complete, but this has to be weihted by the number of players getting us to len(options) samples, and the RGR control for annealing.
     k = _upper_asymptote = 1
     a = _relative_growth_rate = RGR_control
-    print(a)
-
-
-    def games_played_by(player, _env):
-        global environment
-        if 'played by' not in environment or player not in environment['played by']:
-            return 0
-        return environment['played by'][player]
-        # return len(list(filter(lambda g: player in g['players'], environment['games'])))
 
 
     def update_confidence_model(player, _env):
@@ -458,36 +296,6 @@ def run_experiment_with_sigmod_parameters(*args, print_progress=True, return_kin
             # simulated_choices.append(pair)
             return ret
 
-
-    def record_player_sees_winning_team(target, ret, players, _env, **kwargs):
-        global environment
-        if 'winning teams' not in environment:
-            environment['winning teams'] = dict()
-
-        winning_pair = ""
-        for c in environment['games'][-1]["winning player"]:
-            winning_pair += c.__class__.__name__[0]
-
-        # if chars.index(winning_pair[0]) > chars.index(winning_pair[1]):
-        #     winning_pair = winning_pair[1] + winning_pair[0]
-        # simulated_choices.append(winning_pair)
-
-        for actor in players:
-            if 'played by' not in environment:
-                environment['played by'] = dict()
-            environment['played by'][actor] = environment['played by'].get(actor, 0) + 1
-            if games_played_by(actor, _env) > initial_exploration:
-                environment['winning teams'][actor] = environment['winning teams'].get(actor, list()) + [winning_pair]
-
-    def record_simulated_choices(target, ret, players, _env, **kwargs):
-        global environment, simulated_choices
-        completed_game = environment['games'][-1]
-        char_pairs = [completed_game[player]['chars'] for player in completed_game['players']]
-        char_pairs = map(lambda pair: pair[0].__class__.__name__[0] + pair[1].__class__.__name__[0], char_pairs)
-        char_pairs = list(map(lambda pair: pair if pair in counts.keys() else pair[1] + pair[0], char_pairs))
-        for pair in char_pairs:
-            simulated_choices.append(pair)
-
     def choose_best_moves(target, ret, *args, **kwargs):
         '''
         Replaces a set of possible moves from base_model.get_moves_from_table with the single best move, forcing that to be taken.
@@ -503,20 +311,43 @@ def run_experiment_with_sigmod_parameters(*args, print_progress=True, return_kin
         gamedoc = args[0]
         if 'played count' not in environment:
             environment['played count'] = dict()
-        environment['played count'][gamedoc["players"][0]] = environment['played count'].get(gamedoc["players"][0], 0) + 1
-        environment['played count'][gamedoc["players"][1]] = environment['played count'].get(gamedoc["players"][0], 0) + 1
+        environment['played count'][gamedoc["players"][0]] = environment['played count'].get(gamedoc["players"][0],
+                                                                                             0) + 1
+        environment['played count'][gamedoc["players"][1]] = environment['played count'].get(gamedoc["players"][0],
+                                                                                             0) + 1
 
-        # if 'confidence' not in environment:
-        #     confidence_model(gamedoc['players'][0], environment)  # TODO this ABSOLUTELY should not be necessary...?!?!?!??!?!?!?!?!??!?!?!
-        #     confidence_model(gamedoc['players'][1], environment)  # TODO this ABSOLUTELY should not be necessary...?!?!?!??!?!?!?!?!??!?!?!
-
-        # if random() > environment['confidence'][gamedoc['active player']] or list(map(str, gamedoc.get('moves', [None, None])[-2:])) == [
-        #     'skip', 'skip']:
         if list(map(str, gamedoc.get('moves', [None, None])[-2:])) == ['skip', 'skip']:
             return ret
 
         sorted_moves = sorted(ret.items(), key=lambda move: -move[1])
         return {sorted_moves[0][0]: sorted_moves[0][1]}
+
+    def record_simulated_choices(target, ret, players, _env, **kwargs):
+        global environment, simulated_choices
+        completed_game = environment['games'][-1]
+        char_pairs = [completed_game[player]['chars'] for player in completed_game['players']]
+        char_pairs = map(lambda pair: pair[0].__class__.__name__[0] + pair[1].__class__.__name__[0], char_pairs)
+        char_pairs = list(map(lambda pair: pair if pair in counts.keys() else pair[1] + pair[0], char_pairs))
+        for pair in char_pairs:
+            simulated_choices.append(pair)
+
+
+    def record_player_sees_winning_team(target, ret, players, _env, **kwargs):
+        global environment
+        if 'winning teams' not in environment:
+            environment['winning teams'] = dict()
+
+        winning_pair = ""
+        for c in environment['games'][-1]["winning player"]:
+            winning_pair += c.__class__.__name__[0]
+
+        for actor in players:
+            if 'played by' not in environment:
+                environment['played by'] = dict()
+            environment['played by'][actor] = environment['played by'].get(actor, 0) + 1
+            if games_played_by(actor, _env) > initial_exploration:
+                environment['winning teams'][actor] = environment['winning teams'].get(actor, list()) + [winning_pair]
+
 
     AspectHooks.add_around('choose*', around_choosing_chars_based_on_sigmoid)
     AspectHooks.add_encore('play_game', record_player_sees_winning_team)
@@ -534,7 +365,7 @@ def run_experiment_with_sigmod_parameters(*args, print_progress=True, return_kin
             correlation_string = "" if correlation is None else "\t\tCorrelation:\t" + str(correlation) + "\t\tBest so far:\t" + str(best_correlation) + "\twith config:\t" + str(best_config)
             if print_progress:
                 print("Iteration:\t:" + str(len(iteration_num)) + "\t\tGame number:\t" + str(c) + "/" + str(
-                round(len(options) * simulation_excess / 2)) + "\t\tArgs passed: \t" + str(tuple(args)) + "\t\tDuration:\t" + str(datetime.now() - start) + "\t\tSeconds per thousand:\t" + str(round((datetime.now()-last).total_seconds()*10, 5)) + correlation_string)
+                    round(len(options) * simulation_excess / 2)) + "\t\tArgs passed: \t" + str(tuple(args)) + "\t\tDuration:\t" + str(datetime.now() - start) + "\t\tSeconds per thousand:\t" + str(round((datetime.now()-last).total_seconds()*10, 5)) + correlation_string)
             last = datetime.now()
             # if len(players) < player_count:
             #     players.append(players[-1]+1)
@@ -626,15 +457,20 @@ sim_start = datetime.now()
 
 def rgr_annealing_multiple_iter_wrapper(rgr, excess=15, player_count=10, real_world_player_count=1, **kwargs):
     args = [[excess, player_count, rgr, real_world_player_count]]
-    return multiple_iter(*args, **kwargs)
+    return multiple_iterations_of_simulation_with_config(*args, **kwargs)
 
 def excess_annealing_multiple_iter_wrapper(excess, player_count=10, rgr=0.2, real_world_player_count=1, **kwargs):
     args = [[excess[0], player_count, rgr, real_world_player_count]]
-    return multiple_iter(*args, **kwargs)
+    return multiple_iterations_of_simulation_with_config(*args, **kwargs)
 
 if __name__ == "__main__":
     # res = list()
     res = dict()
+    res[season] = excess_annealing_multiple_iter_wrapper([2])
+    change_season(1 if season == 2 else 2)
+    res[season] = excess_annealing_multiple_iter_wrapper([2])
+    for season, corr in res.items():
+        print("season %s: %f.5" % season, corr)
     # print(
     # excess_annealing_multiple_iter_wrapper([90], player_count=30, rgr=0.2, real_world_player_count=1,
     #                                                   players_to_analyse=['Fbomb'], rand_seed=0, iterations=15,
@@ -664,13 +500,5 @@ if __name__ == "__main__":
     #     # TODO: work out the relationship between the new RGR control for a regular growth curve and the number of players. Think we want to set `a` in the confidence model to something like RGR/player_count, and make this RGR control 0.4. I *think* that replaces actors roughly every 10,000 games, which seems sensible (if frankly quite a lot)
     #     results.append(multiple_iterations_of_simulation_with_config([44.65297373, 23.77786079,  0.97786079,  8.77786079], rand_seed=s, iterations=15, print_progress=True, write_results=False, players_to_analyse=['kubajj']))
     # print(results)
-
-    res1 = excess_annealing_multiple_iter_wrapper([2])
-    change_season(1 if season == 2 else 2)
-    res2 = excess_annealing_multiple_iter_wrapper([2])
-    print(res1, res2)
-
-
-
 
 pass

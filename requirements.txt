@@ -2,3 +2,6 @@ pymongo
 numpy
 matplotlib
 forbiddenfruit
+scipy
+numpy
+memoization

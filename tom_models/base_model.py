@@ -19,6 +19,20 @@ This is a base model that is a kind of prediction about behaviour; it's amended 
 
 season = 1
 
+def change_modelled_season(new_season_number):
+    global season
+    season = new_season_number
+    if season == 1:
+        Archer.max_health = 8
+        Healer.max_health = 10
+        Barbarian.max_health = 10
+
+    elif season == 2:
+        Archer.max_health = 9
+        Healer.max_health = 9
+        Barbarian.max_health = 9
+
+
 class Move:
     def __init__(self, attacker=None, targeted_rolls=None, extras=None, movestring=""):
         self.attacker = attacker
