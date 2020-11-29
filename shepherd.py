@@ -146,6 +146,9 @@ class Shepherd:
     def reset_config(self, new_config):
         clear_pure_cache()
         self.config = new_config
+        Shepherd.user_by_username.cache_clear()
+        Shepherd.actual_players.cache_clear()
+        Shepherd.all_non_abandoned_games.cache_clear()
 
     @lru_cache()
     def user_by_username(self, username):

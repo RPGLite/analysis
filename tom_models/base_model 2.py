@@ -17,22 +17,6 @@ This is a base model that is a kind of prediction about behaviour; it's amended 
 #   active player makes optimal move
 #   flip active player
 
-season = 1
-
-def change_modelled_season(new_season_number):
-    global season
-    season = new_season_number
-    if season == 1:
-        Archer.max_health = 8
-        Healer.max_health = 10
-        Barbarian.max_health = 10
-
-    elif season == 2:
-        Archer.max_health = 9
-        Healer.max_health = 9
-        Barbarian.max_health = 9
-
-
 class Move:
     def __init__(self, attacker=None, targeted_rolls=None, extras=None, movestring=""):
         self.attacker = attacker
@@ -158,17 +142,17 @@ class Knight(Character):
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.6 if season == 1 else 0.8
-        self.damage = lambda target, roll: 0 if roll > self.acc else (4 if season == 1 else 3)
+        self.acc = 0.6
+        self.damage = lambda target, roll: 0 if roll > self.acc else 4
 
 
 class Archer(Character):
-    max_health = 8 if season == 1 else 9
+    max_health = 8
 
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.85 if season == 1 else 0.8
+        self.acc = 0.85
         self.damage = lambda target, roll: 0 if roll > self.acc else 2
 
     def select_targets(self, _actor, _ctx, _env):
@@ -181,17 +165,17 @@ class Rogue(Character):
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.75 if season == 1 else 0.7
+        self.acc = 0.75
         self.damage = lambda target, roll: 0 if roll > self.acc else 3 if target.health > 5 else target.health
 
 
 class Healer(Character):
-    max_health = 10 if season == 1 else 9
+    max_health = 10
 
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.85 if season == 1 else 0.9
+        self.acc = 0.85
         self.damage = lambda target, roll: 0 if roll > self.acc else 2
 
     def make_move(self, _actor, _ctx, _env):
@@ -235,12 +219,12 @@ class Wizard(Character):
 
 
 class Barbarian(Character):
-    max_health = 10 if season == 1 else 9
+    max_health = 10
 
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.75 if season == 1 else 0.7
+        self.acc = 0.75
         self.damage = lambda target, roll: 0 if roll > self.acc else 3 if self.health > 4 else 5
 
 
@@ -250,7 +234,7 @@ class Monk(Character):
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.8 if season == 1 else 0.75
+        self.acc = 0.8
         self.damage = lambda target, roll: 0 if roll > self.acc else 1
 
     def make_move(self, _actor, _ctx, _env):
@@ -270,7 +254,7 @@ class Gunner(Character):
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.8 if season == 1 else 0.7
+        self.acc = 0.8
         self.damage = lambda target, roll: 1 if roll > self.acc else 4
 
 
@@ -388,12 +372,9 @@ def get_moves_from_table(gamedoc):
 
     player_chars = gamedoc[gamedoc['active player']]['chars']
     player_chars = sorted(player_chars, key=lambda c: ordering.index(c.__class__))
-    filename = "../lookupV2/season" + str(season) + "/" + "".join(map(lambda c: c.__class__.__name__[0], player_chars)) + '.txt'
+    filename = "../lookupV2/" + "".join(map(lambda c: c.__class__.__name__[0], player_chars)) + '.txt'
 
-    all_moves = movefile_cache.get(filename, None)
-    if all_moves is None:
-        all_moves = add_to_movefile_cache(filename)
-
+    all_moves = movefile_cache.get(filename, add_to_movefile_cache(filename))
     moves_in_state = all_moves[state_string]
     return moves_in_state
 
@@ -421,14 +402,10 @@ def take_turn(_actor, _context, _env):
 
     _context['moves'].append(move)
 
-def play_game(players, environment, choices=None, first_player=None, print_moves=False):
+def play_game(players, environment, choices=None, first_player=None):
     gamedoc = Game()
     gamedoc['moves'] = list()
     gamedoc['players'] = players
-
-    if 'games' not in environment:
-        environment['games'] = list()
-    environment['games'].append(gamedoc)
 
     for player in players:
         gamedoc[player] = dict()
@@ -455,13 +432,12 @@ def play_game(players, environment, choices=None, first_player=None, print_moves
     while not gameover():
         take_turn(gamedoc['active player'], gamedoc, environment)
         gamedoc['active player'] = get_opponent(gamedoc['active player'], gamedoc, environment)
-
-    gamedoc['winning player'] = get_opponent_chars(gamedoc['active player'], gamedoc, environment)
-
-    if print_moves:
         print(gamedoc['moves'][-1])
         print(gamedoc)
 
+    if 'games' not in environment:
+        environment['games'] = list()
+    environment['games'].append(gamedoc)
 
 games_to_play = 1
 if __name__ == "__main__":

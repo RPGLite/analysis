@@ -132,6 +132,8 @@ lookupV2/
 images/
 
 
-## TOM ADDE
+## TOM ADDED
 *.pickle
 */*.pickle
+*.icloud
+*/*.icloud
