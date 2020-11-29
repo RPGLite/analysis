@@ -17,6 +17,8 @@ This is a base model that is a kind of prediction about behaviour; it's amended 
 #   active player makes optimal move
 #   flip active player
 
+season = 1
+
 class Move:
     def __init__(self, attacker=None, targeted_rolls=None, extras=None, movestring=""):
         self.attacker = attacker
@@ -142,17 +144,17 @@ class Knight(Character):
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.6
-        self.damage = lambda target, roll: 0 if roll > self.acc else 4
+        self.acc = 0.6 if season == 1 else 0.8
+        self.damage = lambda target, roll: 0 if roll > self.acc else (4 if season == 1 else 3)
 
 
 class Archer(Character):
-    max_health = 8
+    max_health = 8 if season == 1 else 9
 
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.85
+        self.acc = 0.85 if season == 1 else 0.8
         self.damage = lambda target, roll: 0 if roll > self.acc else 2
 
     def select_targets(self, _actor, _ctx, _env):
@@ -165,17 +167,17 @@ class Rogue(Character):
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.75
+        self.acc = 0.75 if season == 1 else 0.7
         self.damage = lambda target, roll: 0 if roll > self.acc else 3 if target.health > 5 else target.health
 
 
 class Healer(Character):
-    max_health = 10
+    max_health = 10 if season == 1 else 9
 
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.85
+        self.acc = 0.85 if season == 1 else 0.9
         self.damage = lambda target, roll: 0 if roll > self.acc else 2
 
     def make_move(self, _actor, _ctx, _env):
@@ -219,12 +221,12 @@ class Wizard(Character):
 
 
 class Barbarian(Character):
-    max_health = 10
+    max_health = 10 if season == 1 else 9
 
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.75
+        self.acc = 0.75 if season == 1 else 0.7
         self.damage = lambda target, roll: 0 if roll > self.acc else 3 if self.health > 4 else 5
 
 
@@ -234,7 +236,7 @@ class Monk(Character):
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.8
+        self.acc = 0.8 if season == 1 else 0.75
         self.damage = lambda target, roll: 0 if roll > self.acc else 1
 
     def make_move(self, _actor, _ctx, _env):
@@ -254,7 +256,7 @@ class Gunner(Character):
     def __init__(self):
         self.is_stunned = False
         self.health = self.max_health
-        self.acc = 0.8
+        self.acc = 0.8 if season == 1 else 0.7
         self.damage = lambda target, roll: 1 if roll > self.acc else 4
 
 
@@ -372,7 +374,7 @@ def get_moves_from_table(gamedoc):
 
     player_chars = gamedoc[gamedoc['active player']]['chars']
     player_chars = sorted(player_chars, key=lambda c: ordering.index(c.__class__))
-    filename = "../lookupV2/" + "".join(map(lambda c: c.__class__.__name__[0], player_chars)) + '.txt'
+    filename = "../lookupV2/season" + str(season) + "/" + "".join(map(lambda c: c.__class__.__name__[0], player_chars)) + '.txt'
 
     all_moves = movefile_cache.get(filename, None)
     if all_moves is None:
