@@ -20,8 +20,8 @@ def distance_on_probability_dist_sphere(real, simulated):
     real_sorted = sorted(real.items(), key=fst)
     sim_sorted = sorted(simulated.items(), key=fst)
 
-    real_vector = map(snd, real_sorted)
-    sim_vector = map(snd, sim_sorted)
+    real_vector = list(map(snd, real_sorted))
+    sim_vector = list(map(snd, sim_sorted))
 
     assert len(real_vector) == len(sim_vector)
 
