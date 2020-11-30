@@ -234,7 +234,7 @@ def grid_search(folds, correlation_metric, depth, iterations, games, players, *a
 
             # Get results from our correlation metric
             correlation_results = list(map(lambda result: correlation_metric(*result), results))
-            bestguess = min(zip(possible_rgrs_at_level, correlation_results), key=lambda result: result[1].pvalue)
+            bestguess = min(zip(possible_rgrs_at_level, correlation_results), key=lambda result: result[1])
             bestguess = bestguess[0]  # the actual rgr, not the tuple from the zip
 
         # We now have an rgr value for _one_ training set. How does it perform for the testing set?
@@ -248,7 +248,7 @@ def grid_search(folds, correlation_metric, depth, iterations, games, players, *a
     return performances
 
 
-def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lambda x: kendalltau(x).pvalue, games=None, optimisation="grid", depth=4, *args, **kwargs):
+def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lambda real, sim: kendalltau(real, sim).pvalue, games=None, optimisation="grid", depth=4, *args, **kwargs):
     if games is None:
         global shepherd
         games = get_games_for_players(players, shepherd)
