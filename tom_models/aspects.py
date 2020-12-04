@@ -162,9 +162,8 @@ def record_player_sees_winning_team(target, ret, players, environment, **kwargs)
             environment['winning teams'][actor] = environment['winning teams'].get(actor, list()) + [winning_pair]
     except Exception as e:
         print(e)
-        import time
-        time.sleep(2)
         raise(e)
+
 
 def handle_player_cannot_win(_target, exception_raised, player, gamedoc, environment):
     '''

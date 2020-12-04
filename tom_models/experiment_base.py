@@ -182,6 +182,7 @@ def parallelisable_with_seed(argset):
     else:
         return f(**kwargs)
 
+
 def mitigate_randomness(f, *args, mitigation_iterations=5, init_seed=0, **kwargs):
     results = list()
 
@@ -222,7 +223,7 @@ def grid_search(folds, correlation_metric, depth, iterations, games, players, *a
             if level < 0.1:
                 possible_rgrs_at_level += [bestguess - g * level for g in range(10)]
 
-            kwarg_list = {'games': games, 'players': players, 'iterations': iterations}
+            kwarg_list = {'games': training, 'players': players, 'iterations': iterations}
             kwarg_list.update(kwargs)
 
             # A mad construct for Good Reasons. Python's multiprocessing Pool objects require a pickle-able function (so defined at module level). We use `parallelisable_with_seed` to unpack args and control randomness.
@@ -236,14 +237,19 @@ def grid_search(folds, correlation_metric, depth, iterations, games, players, *a
             correlation_results = list(map(lambda result: correlation_metric(*result), results))
             bestguess = min(zip(possible_rgrs_at_level, correlation_results), key=lambda result: result[1])
             bestguess = bestguess[0]  # the actual rgr, not the tuple from the zip
+            result_index = possible_rgrs_at_level.index(bestguess)  # they maintain an ordering, so rgr number `i`'s results are also in position `i`
+            real, sim = results[result_index]
 
         # We now have an rgr value for _one_ training set. How does it perform for the testing set?
         # Measure how well it correlates to the corresponding test set.
         # Add this to the performances list in a manner that lets us compare performances and find its respective rgr
-        performances.append([bestguess, correlation_metric(
-            *mitigate_randomness(compare_with_multiple_players, bestguess, iterations, games=testing, players=players, *args, **kwargs))])
+        test_real, test_sim = mitigate_randomness(compare_with_multiple_players, bestguess, iterations, players, games=testing, *args,
+                                                  **kwargs)
+        performances.append([bestguess,
+                             correlation_metric(test_real, test_sim),
+                             test_real, test_sim,
+                             real, sim])
         print(performances)
-        input("any key to continue...")
 
     return performances
 
@@ -270,6 +276,7 @@ def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lamb
         performances = grid_search(folds, correlation_metric, depth, iterations, games, players, *args, **kwargs)
     elif optimisation == "simulated annealing":
         for training, testing in folds:
+            #TODO: put an annealing implementation here
             pass
 
     # perform optimisation on the training fold of games for these players
@@ -278,7 +285,7 @@ def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lamb
 
     # Pick the best of the testing correlations, according to what we got from the above grid search
     # NOTE: assuming that hasn't been updated/replaced
-    performance_values = list(map(lambda x: x[1], performances))
+    # performance_values = list(map(lambda x: x[1], performances))
     return list(zip(performances, folds))
 
 
@@ -298,7 +305,6 @@ if __name__ == "__main__":
     print(k_fold_by_players(players=['Frp97'],
                             correlation_metric=kendalltau,
                             fold_count=5,
-                            # iterations=30*len(group_games),
                             iterations=5000,
                             games=group_games,
                             print_progress=True))
