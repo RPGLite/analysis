@@ -5,7 +5,8 @@ from random import seed
 from datetime import datetime
 from scipy.stats import kendalltau
 from scipy.optimize import dual_annealing
-from tom_models.aspects import handle_player_cannot_win, record_player_sees_winning_team, around_choosing_chars_based_on_sigmoid, record_simulated_choices, best_move_generator
+from tom_models.aspects import handle_player_cannot_win, record_player_sees_winning_team, around_choosing_chars_based_on_sigmoid, record_simulated_choices, best_move_generator, update_confidence_model
+from tom_models.aspects import hyperbolic_character_choice_from_win_record, track_game_outcomes, around_choosing_chars_based_on_prior_distribution
 from tom_models.aspects import char_ordering  # separate from the above a) the above is mammoth and b) it should find a new home
 from tom_models.game_processing import convert_gamedoc_to_tom_compatible, flip_state, process_lookup2, get_games_for_players, find_distribution_of_charpairs_from_players_collective_games, find_distribution_of_charpairs_for_user_from_gameset
 import gc
@@ -39,6 +40,9 @@ def generate_synthetic_data(rgr_control,
                             iterations,
                             environment,
                             print_progress=False,
+                            aspects=list(),
+                            games=list(),
+                            players=list(),
                             garbage_collect_intermittently=False,
                             num_synthetic_players=10,
                             sigmoid_initial_confidence=0.1,
@@ -59,9 +63,13 @@ def generate_synthetic_data(rgr_control,
 
 
     rule_removers = list()
-    rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_sigmoid))
-    rule_removers.append(AspectHooks.add_encore('play_game', record_player_sees_winning_team))
+    rule_removers.append(AspectHooks.add_prelude('choose*', update_confidence_model))
+    rule_removers.append(AspectHooks.add_around('choose*', hyperbolic_character_choice_from_win_record))
+    # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_prior_distribution))
+    # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_sigmoid))
     rule_removers.append(AspectHooks.add_encore('play_game', record_simulated_choices))
+    rule_removers.append(AspectHooks.add_encore('play_game', track_game_outcomes))
+    rule_removers.append(AspectHooks.add_encore('play_game', record_player_sees_winning_team))
     rule_removers.append(AspectHooks.add_encore('get_moves_from_table', best_move_generator(environment)))
     rule_removers.append(AspectHooks.add_error_handler('take_turn', handle_player_cannot_win))
 
@@ -131,7 +139,7 @@ def compare_with_multiple_players(rgr_control, iterations, players, games=None, 
 
     environment = dict()
 
-    generate_synthetic_data(rgr_control, iterations, environment, **kwargs)
+    generate_synthetic_data(rgr_control, iterations, environment, games=games, players=players, **kwargs)
     charpair_distribution = dict()
     for charpair in environment['simulated_choices']:
         charpair_distribution[charpair] = charpair_distribution.get(charpair, 0) + 1
