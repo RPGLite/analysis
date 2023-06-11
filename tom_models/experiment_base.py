@@ -65,6 +65,7 @@ def generate_synthetic_data(rgr_control,
     rule_removers = list()
     rule_removers.append(AspectHooks.add_prelude('choose*', update_confidence_model))
     rule_removers.append(AspectHooks.add_around('choose*', hyperbolic_character_choice_from_win_record))
+    # rule_removers.append(AspectHooks.add_around('generate*', around_simulation_records_prior))
     # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_prior_distribution))
     # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_sigmoid))
     rule_removers.append(AspectHooks.add_encore('play_game', record_simulated_choices))
