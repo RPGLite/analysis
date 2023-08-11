@@ -1,18 +1,19 @@
 from shepherd import Shepherd, ShepherdConfig
-from tom_models.pdsf import *
+from pdsf import *
 from helper_fns import *
 from random import seed
 from datetime import datetime
 from scipy.stats import kendalltau
 from scipy.optimize import dual_annealing
-from tom_models.aspects import handle_player_cannot_win, record_player_sees_winning_team, around_choosing_chars_based_on_sigmoid, record_simulated_choices, best_move_generator, update_confidence_model
-from tom_models.aspects import hyperbolic_character_choice_from_win_record, track_game_outcomes, around_choosing_chars_based_on_prior_distribution
-from tom_models.aspects import char_ordering  # separate from the above a) the above is mammoth and b) it should find a new home
-from tom_models.game_processing import convert_gamedoc_to_tom_compatible, flip_state, process_lookup2, get_games_for_players, find_distribution_of_charpairs_from_players_collective_games, find_distribution_of_charpairs_for_user_from_gameset
+from aspects import handle_player_cannot_win, record_player_sees_winning_team, around_choosing_chars_based_on_sigmoid, record_simulated_choices, best_move_generator, update_confidence_model
+from aspects import hyperbolic_character_choice_from_win_record, track_game_outcomes, around_choosing_chars_based_on_prior_distribution
+from aspects import char_ordering  # separate from the above a) the above is mammoth and b) it should find a new home
+from game_processing import convert_gamedoc_to_tom_compatible, flip_state, process_lookup2, get_games_for_players, find_distribution_of_charpairs_from_players_collective_games, find_distribution_of_charpairs_for_user_from_gameset
 import gc
+from datetime import datetime
 
 with AspectHooks():
-    from tom_models.base_model import *
+    from base_model import *
 
 def change_season(newseason):
     global season, shepherd, config
@@ -155,8 +156,6 @@ def compare_with_multiple_players(rgr_control, iterations, players, games=None, 
     for charpair, count in charpair_distribution.items():
         charpair_distribution[charpair] = (count / iterations) * number_of_real_world_games
 
-    print(sum(environment['confidence'].values()) / len(environment['confidence']))
-
     # Make ordered distribution lists to account for unordered dicts
     real_ordered_distribution, simulated_ordered_distribution = list(), list()
     chars = list(char_ordering.keys())
@@ -168,7 +167,6 @@ def compare_with_multiple_players(rgr_control, iterations, players, games=None, 
 
     simulated_ordered_distribution = list(map(lambda x: x / 2,
                                               simulated_ordered_distribution))
-    print(real_ordered_distribution, simulated_ordered_distribution)
     return (real_ordered_distribution, simulated_ordered_distribution)
 
 
@@ -220,7 +218,11 @@ def mitigate_randomness(f, *args, mitigation_iterations=5, init_seed=0, **kwargs
 def grid_search(folds, correlation_metric, depth, iterations, games, players, *args, **kwargs):
     performances = list()
 
+    fold_count = 0
     for training, testing in folds:
+
+        fold_count += 1
+        print(f"Starting fold {fold_count}. Time is {datetime.now().isoformat()}\n\n\n")
 
         bestguess = 0
         level = 1
@@ -259,6 +261,7 @@ def grid_search(folds, correlation_metric, depth, iterations, games, players, *a
                              test_real, test_sim,
                              real, sim])
         print(performances)
+        print(f"\nsearch for level {level} complete, best guess currently {bestguess}\n\n\n")
 
     return performances
 
@@ -267,7 +270,7 @@ def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lamb
     if games is None:
         global shepherd
         games = get_games_for_players(players, shepherd)
-        del shepherd
+        #del shepherd
 
     # Randomise game order
     __import__("random").shuffle(games)

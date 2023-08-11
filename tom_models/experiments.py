@@ -1,10 +1,11 @@
-from tom_models.experiment_base import k_fold_by_players
+from experiment_base import k_fold_by_players
 from pickle import dump, load
 from random import shuffle
 from sys import argv
 from pdsf import AspectHooks
 from datetime import datetime
-from scipy.stats import kendalltau
+from scipy.stats import kendalltau, spearmanr
+from os import mkdir, environ
 
 def compare_s1_s2(s1_pickled_filename):
     with open(s1_pickled_filename, 'rb') as s1_datafile:
@@ -13,10 +14,14 @@ def compare_s1_s2(s1_pickled_filename):
     s2_data = dict()
     username = s1_pickled_filename.split('-')[0]
     with AspectHooks():
-        from tom_models.experiment_base import change_season, mitigate_randomness, compare_with_multiple_players
+        from experiment_base import change_season, mitigate_randomness, compare_with_multiple_players, get_moves_from_table
+
+    # Apply memory optimisation fuzzer
+    from aspects import fuzz_nonlocalMoveLookup
+    #AspectHooks.add_fuzzer('get_moves_from_table', fuzz_nonlocalMoveLookup)
 
     change_season(2)
-    from tom_models.experiment_base import shepherd, get_games_for_players
+    from experiment_base import shepherd, get_games_for_players
 
     games = get_games_for_players([username], shepherd)
     shuffle(games)
@@ -60,21 +65,40 @@ def single_player_annealing_to_rgr(username, **kwargs):
     :return: the RGR we find best represents that user with grid-searched optimisation applied via k-fold validation
     '''
     with AspectHooks():
-        from tom_models.experiment_base import k_fold_by_players
+        from experiment_base import k_fold_by_players, get_moves_from_table
+
+    # Apply memory optimisation fuzzer
+    from aspects import fuzz_nonlocalMoveLookup
+    #AspectHooks.add_fuzzer('get_moves_from_table', fuzz_nonlocalMoveLookup)
+
+    # TODO not yet finished --- unclear whehter spearmanr has the correct shape here (think it returns two values?!?!?)
+    correlation_metric = lambda real, sim: kendalltau(real, sim).pvalue
+    if environ.get("USE_RHO") is not None:
+        correlation_metric = lambda real, sim: spearmanr(real, sim).pvalue
+
     return k_fold_by_players(players=[username],
                              fold_count=5,
                              iterations=10000,
                              depth=4,
                              print_progress=False,
+                             correlation_metric=correlation_metric,
                              **kwargs)
 
 if __name__ == "__main__":
 
+    # TODO s2 is not set up for ktau vs spearman
     if argv[1] == 's2':
         for datfile in argv[2:]:
             compare_s1_s2(datfile)
 
     else:
         for username in argv[1:]:
-            with open(username + "-generated-" + datetime.now().isoformat() + '.pickle', 'wb') as outputfile:
+            # TODO: make note of the model of learning being applied in filename, apply
+            # aspects here.
+            timestamp = datetime.now().replace(minute=0, second=0, microsecond=0).isoformat()
+            try:
+                mkdir(timestamp)
+            except:
+                pass # Folder probably already exists
+            with open(timestamp + "/" + username + "-generated-" + datetime.now().isoformat() + '.pickle', 'wb') as outputfile:
                 dump(single_player_annealing_to_rgr(username=username), outputfile)

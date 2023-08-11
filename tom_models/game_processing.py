@@ -1,7 +1,7 @@
 from copy import deepcopy
 from pickle import load, dump
-from tom_models.base_model import season
-from tom_models.aspects import char_ordering
+from base_model import season
+from aspects import char_ordering
 from helper_fns import pairs
 import os
 

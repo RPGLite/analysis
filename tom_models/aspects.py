@@ -1,9 +1,10 @@
-from tom_models.base_model import get_opponent, Knight, Archer, Wizard, Rogue, Healer, Barbarian, Gunner, Monk
+from base_model import get_opponent, Knight, Archer, Wizard, Rogue, Healer, Barbarian, Gunner, Monk
 from scipy.stats import powerlaw
 from random import random, shuffle, choice
 from helper_fns import chars
 import sys
 import inspect
+import ast
 
 
 #=== begin ancillary code necessary for the aspects to work — these can be moved into another package...
@@ -180,7 +181,7 @@ def handle_player_cannot_win(_target, exception_raised, player, gamedoc, environ
         gamedoc[player]['chars'][1].health = 0
         # Swap the active player so this player "takes another turn" and loses.
         gamedoc['active player'] = get_opponent(gamedoc['active player'], gamedoc, environment)
-        print(exception_raised)
+        #print(exception_raised)
         return True
     elif isinstance(exception_raised, ValueError):
         print(exception_raised)
@@ -357,7 +358,7 @@ def around_simulation_records_prior(next_around, target, *args, **kwargs):
     games = sys._getframe(game_frame).f_locals['games']
     players = sys._getframe(game_frame).f_locals['players']
 
-    from tom_models.experiment_base import find_distribution_of_charpairs_from_players_collective_games
+    from experiment_base import find_distribution_of_charpairs_from_players_collective_games
     distribution = find_distribution_of_charpairs_from_players_collective_games(players, games)
     possible_choices = list()
     for pair, count in distribution.items():
@@ -398,3 +399,16 @@ def around_choosing_chars_based_on_prior_distribution(next_around, target, actor
 
     gamedoc[actor]['chars'] = pair_instances
     return pair_instances
+
+
+def fuzz_nonlocalMoveLookup(steps, gamedoc, *args, **kwargs):
+    '''
+    A fuzzer on get_moves_from_table which replaces the lookup for cached moves
+    with a call to a server which performs the lookup and serves responses.
+    Greatly reduces the memory footprint of an experiment.
+    '''
+    import_requests_ast = ast.parse("import requests")
+    get_move_ast = ast.parse('moves_in_state = requests.get(f"http://127.0.0.1:8000/?state_string={state_string}&filename={filename}").json()')
+    steps = steps[:6] + [import_requests_ast.body[0], get_move_ast.body[0]] + steps[8:]
+    return steps
+

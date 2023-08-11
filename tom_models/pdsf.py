@@ -2,13 +2,11 @@ from inspect import isfunction, isclass, ismethod
 import re
 import builtins
 from functools import wraps, partial, reduce
-from copy import deepcopy
 import ast
 from textwrap import dedent
 import copy
 import inspect
-from types import FunctionType
-
+from types import CodeType, FunctionType, new_class
 
 class AspectHooks:
 
@@ -20,6 +18,7 @@ class AspectHooks:
     manage_ordering = False
     treat_rules_as_dynamic = False
     rule_cache = dict()
+    deep_apply = False
 
     def __enter__(self, *args, **kwargs):
         self.old_import = __import__
@@ -29,7 +28,7 @@ class AspectHooks:
     def final_around(self, target, *args, **kwargs):
         return target(*args, **kwargs)
 
-    def __import__(self, *args, deep_apply=False, **kwargs):
+    def __import__(self, *args, **kwargs):
         mod = self.old_import(*args, **kwargs)
 
         def build_wrapper(target):
@@ -53,8 +52,10 @@ class AspectHooks:
 
                 try:
 
+                    t = target
+
                     if fuzzers is not None and fuzzers != []:
-                        code = dedent(inspect.getsource(target))
+                        code = dedent(inspect.getsource(t))
                         target_ast = ast.parse(code)
                         funcbody_steps = target_ast.body[0].body  # Assume we've got a module object containing only a function definition.
 
@@ -64,21 +65,22 @@ class AspectHooks:
                             if non_inline_changed_steps:
                                 funcbody_steps = non_inline_changed_steps
 
-                        print(funcbody_steps)
+                        target_ast.body[0].body = funcbody_steps
                         compiled_fuzzed_target = compile(target_ast, "<ast>", "exec")
-                        if not isinstance(target, FunctionType):
-                            target.__func__.__code__ =  compiled_fuzzed_target.co_consts[0]
+                        if not isinstance(t, FunctionType):
+                            t.__func__.__code__ =  compiled_fuzzed_target.co_consts[0]
                         else:
-                            target.__code__ = compiled_fuzzed_target.co_consts[0]
+                            t.__code__ = compiled_fuzzed_target.co_consts[0]
 
                     # Run pre advice
-                    [advice(target, *args, **kwargs) for advice in pre]
+                    
+                    [advice(t, *args, **kwargs) for advice in pre]
 
                     def nest_around_call(nested_around, next_around):
                         return partial(next_around, nested_around)
 
-                    # NOTE. The signature of around functions is around(next_around_function, target, *args, **kwargs),
-                    # ... and they MUST make the call next_around_function(target*args, **kwargs)
+                    # NOTE. The signature of around functions is around(next_around_function, t, *args, **kwargs),
+                    # ... and they MUST make the call next_around_function(t, *args, **kwargs)
                     # for around_index in range(len(around-1)):
                     #     around[around_index] = partial(around[around_index], around_index[around_index+1])
                     # around[-1] = partial(around[-1], self.final_around)
@@ -87,10 +89,10 @@ class AspectHooks:
                                            around[::-1],
                                            self.final_around)
 
-                    ret = nested_around(target, *args, **kwargs)
+                    ret = nested_around(t, *args, **kwargs)
 
                     for advice in post:
-                        post_return = advice(target, ret, *args, **kwargs)
+                        post_return = advice(t, ret, *args, **kwargs)
                         ret = ret if post_return is None else post_return
 
                     reset_code_to_previous()
@@ -98,12 +100,14 @@ class AspectHooks:
                     return ret
                 except Exception as exception:
 
-                    # Oh no! We might have fuzzed and then thrown an exception before we could replace the fuzzed code object. Make sure that's done now.
+                    # Oh no! We might have fuzzed and then thrown an exception
+                    # before we could replace the fuzzed code object. Make sure
+                    # that's done now.
                     reset_code_to_previous()
 
                     prevent_raising = False
                     for handler in error_handlers:
-                        prevent_raising = prevent_raising or handler(target, exception, *args, **kwargs)
+                        prevent_raising = prevent_raising or handler(t, exception, *args, **kwargs)
                     if not prevent_raising:
                         raise exception
 
@@ -115,7 +119,7 @@ class AspectHooks:
 
                 # Only apply if we're either specifically applying to things imported by this module too (`deep_apply`) or
                 # if it's from the original target module, `mod`
-                if (hasattr(item, "__module__") and item.__module__ == mod.__name__) or deep_apply:
+                if (hasattr(item, "__module__") and item.__module__ == mod.__name__) or AspectHooks.deep_apply:
                     if isfunction(item) or ismethod(item):
                         setattr(target_object, item_name, build_wrapper(item))
                     elif isclass(item):
@@ -218,6 +222,15 @@ class AspectHooks:
 
     def __exit__(self, *args, **kwargs):
         builtins.__import__ = self.old_import
+
+    def __init__(self, ) -> None:
+        # TODO: add options for instance-based configuration.
+        # step 1: make class-level attributes default attributes here
+        # step 2: add options as parameters here, set them for an instance
+        # step 3: change weaving logic to avoid AsepctHooks.attr and use
+        #         self.attr instead
+        # step 4: test test test!!!
+        pass
 
 if __name__ == "__main__":
     from math import pow
