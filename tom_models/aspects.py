@@ -106,7 +106,7 @@ def around_choosing_chars_based_on_sigmoid(next_around, target, _actor, _ctx, en
         return ret
 
 
-def best_move_generator(environment):
+def best_move_generator(environment={}):
     def choose_best_moves(target, ret, *args, **kwargs):
         '''
         Replaces a set of possible moves from base_model.get_moves_from_table with the single best move, forcing that to be taken.

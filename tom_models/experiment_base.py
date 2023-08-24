@@ -41,16 +41,16 @@ def generate_synthetic_data(rgr_control,
                             iterations,
                             environment,
                             print_progress=False,
-                            aspects=list(),
+                            advice : list[tuple[str, str, str]] = list() , # A list of tuples of string join points, aspects to apply, and types of aspect to weave.
                             games=list(),
                             players=list(),
                             garbage_collect_intermittently=False,
-                            num_synthetic_players=10,
+                            num_synthetic_players=15,
                             sigmoid_initial_confidence=0.1,
-                            initial_exploration=28,
-                            boredom_confidence=0.98,
-                            prob_bored=0.25,
-                            sigmoid_used="logistic",  # "logistic" for logistic curve, "birch" for birch curve.
+                            initial_exploration=56,
+                            boredom_confidence=0.7, # 1 to disable boredom and keep players indefinitely
+                            prob_bored=0.1,
+                            sigmoid_used="birch controlled",  # "logistic" for logistic curve, "birch" for birch curve.
                             boredom_period=25,
                             birch_c=1):  # boredom period is probably usefully set as (num players / 2) squared. Means the players have the opportunity to play each other, but we're not waiting forever; it's the area of a half of an adjacency matrix, roughly.
 
@@ -62,18 +62,30 @@ def generate_synthetic_data(rgr_control,
     environment['special vals']['sigmoid initial confidence'] = sigmoid_initial_confidence
     environment['special vals']['initial_exploration'] = initial_exploration
 
-
     rule_removers = list()
-    rule_removers.append(AspectHooks.add_prelude('choose*', update_confidence_model))
-    rule_removers.append(AspectHooks.add_around('choose*', hyperbolic_character_choice_from_win_record))
-    # rule_removers.append(AspectHooks.add_around('generate*', around_simulation_records_prior))
-    # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_prior_distribution))
-    # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_sigmoid))
-    rule_removers.append(AspectHooks.add_encore('play_game', record_simulated_choices))
-    rule_removers.append(AspectHooks.add_encore('play_game', track_game_outcomes))
-    rule_removers.append(AspectHooks.add_encore('play_game', record_player_sees_winning_team))
-    rule_removers.append(AspectHooks.add_encore('get_moves_from_table', best_move_generator(environment)))
-    rule_removers.append(AspectHooks.add_error_handler('take_turn', handle_player_cannot_win))
+    if len(advice) == 0:
+        # manual configuration
+        rule_removers.append(AspectHooks.add_prelude('choose*', update_confidence_model))
+        rule_removers.append(AspectHooks.add_around('choose*', hyperbolic_character_choice_from_win_record))
+        # rule_removers.append(AspectHooks.add_around('generate*', around_simulation_records_prior))
+        # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_prior_distribution))
+        # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_sigmoid))
+        rule_removers.append(AspectHooks.add_encore('play_game', record_simulated_choices))
+        rule_removers.append(AspectHooks.add_encore('play_game', track_game_outcomes))
+        rule_removers.append(AspectHooks.add_encore('play_game', record_player_sees_winning_team))
+        rule_removers.append(AspectHooks.add_encore('get_moves_from_table', best_move_generator()))
+        rule_removers.append(AspectHooks.add_error_handler('take_turn', handle_player_cannot_win))
+    else:
+        aspect_application_methods = {
+            'prelude': AspectHooks.add_prelude,
+            'around': AspectHooks.add_around,
+            'encore': AspectHooks.add_encore,
+            'within': AspectHooks.add_fuzzer,
+            'error_handler': AspectHooks.add_error_handler,
+        }
+        for aspect_type, join_point, aspect in advice:
+            rule_removers.append(aspect_application_methods[aspect_type](join_point, aspect))
+        # rule_removers = [aspect_application_methods[aspect_type](join_point, aspect) for aspect_type, join_point, aspect in advice]
 
     # Our base model is now aspect-applied.
     # From here, we'll produce a pool of synthetic players and simulate games, generating data as we go.
@@ -104,7 +116,8 @@ def generate_synthetic_data(rgr_control,
         # Means the players have the opportunity to play each other, but we're not waiting forever; it's the area of a half of an adjacency matrix, roughly.
         if game_number % boredom_period == 0:
 
-            print("%f seconds per game run" % ( (datetime.now()-old_time).total_seconds()/boredom_period) )
+            if print_progress:
+                print("%f seconds per game run" % ( (datetime.now()-old_time).total_seconds()/boredom_period) )
             old_time = datetime.now()
 
             # Remove bored players
@@ -190,14 +203,15 @@ def parallelisable_with_seed(argset):
         return f(**kwargs)
 
 
-def mitigate_randomness(f, *args, mitigation_iterations=5, init_seed=0, **kwargs):
+def mitigate_randomness(f, *args, mitigation_iterations=10, init_seed=0, **kwargs):
     results = list()
 
     # We make a set of arguments which includes a bunch of different random seeds for `parallelisable_with_seed` to set.
     # Now we will have run the same function many times, and we can take the
     parallel_args = [(init_seed + offset, f, args, kwargs, movefile_cache) for offset in range(mitigation_iterations)]
+    # executor = ThreadPoolExecutor(max_workers=mitigation_iterations) # Execute each iteration in parallel
+    # results = list(executor.map(parallelisable_with_seed, parallel_args))
     results = list(map(parallelisable_with_seed, parallel_args))
-
     first = lambda tup: tup[0]
     second = lambda tup: tup[1]
     real_world_data = list(map(first, results))
@@ -215,8 +229,11 @@ def mitigate_randomness(f, *args, mitigation_iterations=5, init_seed=0, **kwargs
 
     return real_choice_distribution, simulated_choice_distribution
 
-def grid_search(folds, correlation_metric, depth, iterations, games, players, *args, **kwargs):
+# Correlation threshold is the minimum correlation value we'll accept before selecting RGRs based on pval
+def grid_search(folds, correlation_metric, depth, iterations, games, players, correlation_threshold=0.15, *args, **kwargs):
     performances = list()
+    
+    # executor = ThreadPoolExecutor(max_workers=10) # one worker per RGR tested at the level we're searching (10 numbers for base 10)
 
     fold_count = 0
     for training, testing in folds:
@@ -226,13 +243,26 @@ def grid_search(folds, correlation_metric, depth, iterations, games, players, *a
 
         bestguess = 0
         level = 1
+        meeting_threshold = True # Indicates whether we found _any_ correlation statistics above threshold for rgr in past run
+        previously_met_threshold = True # Used to see whether we're repeatedly failing, and break early if so (to avoid thrashing uselessly)
         for d in range(depth):
+            if meeting_threshold or bestguess == 0: # If we're meeting correlation threshold, or just beginning to search
+                search_pivots = [bestguess]
+            else:
+                search_pivots = [0.1, 0.3, 0.5, 0.7, 0.9]
+            
+            # Move level forward (didn't earlier so that we could use level in search pivots)
             level *= 0.1
-            possible_rgrs_at_level = [bestguess + g * level for g in range(1, 10)]
+
+            possible_rgrs_at_level = [pivot + g * level for g in range(1, 10) for pivot in search_pivots]
             # We need to check above _and_ below the previous best guess we picked, but we only want to do this on the
             # second iteration onward so that we don't test negative rgrs.
             if level < 0.1:
-                possible_rgrs_at_level += [bestguess - g * level for g in range(10)]
+                possible_rgrs_at_level += [pivot - g * level for g in range(10) for pivot in search_pivots]
+
+            # If we're not meeting correlation threshold, the above will miss out RGRs 0.2, 0.4, 0.6, and 0.8. Add those now.
+
+            possible_rgrs_at_level += [pivot * level for pivot in [0.2, 0.4, 0.6, 0.8]]
 
             kwarg_list = {'games': training, 'players': players, 'iterations': iterations}
             kwarg_list.update(kwargs)
@@ -242,14 +272,42 @@ def grid_search(folds, correlation_metric, depth, iterations, games, players, *a
             arglists = [
                 [0, mitigate_randomness, [compare_with_multiple_players, []], dict({'rgr_control': mapped_rgr}, **kwarg_list),
                  movefile_cache] for mapped_rgr in possible_rgrs_at_level]
+            # results = list(executor.map(parallelisable_with_seed, arglists))
             results = list(map(parallelisable_with_seed, arglists))
 
             # Get results from our correlation metric
-            correlation_results = list(map(lambda result: correlation_metric(*result), results))
-            bestguess = min(zip(possible_rgrs_at_level, correlation_results), key=lambda result: result[1])
+            correlation_certainties = list(map(lambda result: correlation_metric(*result).pvalue, results))
+            correlation_magnitudes = list(map(lambda result: correlation_metric(*result).statistic, results))
+
+            # Find all datapoints where the correlation statistic / magnitude is above the parameterised threshold.
+            # If none exist, select only the datapoint with the highest correlation statistic.
+            acceptable_correlations_to_select = list()
+            for index in range(len(possible_rgrs_at_level)):
+               if correlation_magnitudes[index] > correlation_threshold:
+                    acceptable_correlations_to_select.append((possible_rgrs_at_level[index], correlation_certainties[index]))
+
+            previously_met_threshold = meeting_threshold
+            meeting_threshold = len(acceptable_correlations_to_select) != 0
+
+            # If this is our first run, the only thing we care about is correlation. 
+            # After that, we'll begin picking based on pvalue instead.
+            # For that reason, we pick the best correlation if none met threshold, OR if level == 0.1
+            if len(acceptable_correlations_to_select) == 0 or level == 0.1:
+                best_correlation_index = correlation_magnitudes.index(max(correlation_magnitudes))
+                acceptable_correlations_to_select = [(possible_rgrs_at_level[best_correlation_index], correlation_certainties[index])]
+
+            bestguess = min(acceptable_correlations_to_select, key=lambda result: result[1])
             bestguess = bestguess[0]  # the actual rgr, not the tuple from the zip
+
             result_index = possible_rgrs_at_level.index(bestguess)  # they maintain an ordering, so rgr number `i`'s results are also in position `i`
             real, sim = results[result_index]
+            
+            #print(f"\nsearch for level {level} complete, best rgr guess {bestguess}, pval {correlation_certainties[result_index]} \t statistic {correlation_magnitudes[result_index]}\n\n\n")
+
+            # If we failed to meet threshold TWICE, we're spending loads of time searching, and this is a lost cause.
+            if not previously_met_threshold and not meeting_threshold:
+                print("EXPERIMENT FAIL, aborting to save time. Thrashing around RGRs but nothing correlates.")
+                break
 
         # We now have an rgr value for _one_ training set. How does it perform for the testing set?
         # Measure how well it correlates to the corresponding test set.
@@ -257,16 +315,18 @@ def grid_search(folds, correlation_metric, depth, iterations, games, players, *a
         test_real, test_sim = mitigate_randomness(compare_with_multiple_players, bestguess, iterations, players, games=testing, *args,
                                                   **kwargs)
         performances.append([bestguess,
-                             correlation_metric(test_real, test_sim),
+                             correlation_metric(test_real, test_sim).pvalue,
+                             correlation_metric(test_real, test_sim).statistic,
+                             'early_exit' if not previously_met_threshold and not meeting_threshold else 'complete_iteration',
                              test_real, test_sim,
                              real, sim])
-        print(performances)
-        print(f"\nsearch for level {level} complete, best guess currently {bestguess}\n\n\n")
+        print(list(map(lambda perf: perf[:4], performances)))
+        print(f"\n\n\nfinished fold {fold_count}\n\n\n")
 
     return performances
 
 
-def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lambda real, sim: kendalltau(real, sim).pvalue, games=None, optimisation="grid", depth=4, *args, **kwargs):
+def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lambda real, sim: kendalltau(real, sim), games=None, optimisation="grid", depth=4, *args, **kwargs):
     if games is None:
         global shepherd
         games = get_games_for_players(players, shepherd)

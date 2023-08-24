@@ -71,16 +71,19 @@ def single_player_annealing_to_rgr(username, **kwargs):
     from aspects import fuzz_nonlocalMoveLookup
     #AspectHooks.add_fuzzer('get_moves_from_table', fuzz_nonlocalMoveLookup)
 
-    # TODO not yet finished --- unclear whehter spearmanr has the correct shape here (think it returns two values?!?!?)
-    correlation_metric = lambda real, sim: kendalltau(real, sim).pvalue
-    if environ.get("USE_RHO") is not None:
-        correlation_metric = lambda real, sim: spearmanr(real, sim).pvalue
+    # TODO not yet finished --- unclear whether spearmanr has the correct shape here (think it returns two values?!?!?)
+    if 'correlation_metric' in kwargs:
+        correlation_metric = kwargs['correlation_metric']
+    else:
+        correlation_metric = lambda real, sim: kendalltau(real, sim)
+        if environ.get("USE_RHO") is not None:
+            correlation_metric = lambda real, sim: spearmanr(real, sim)
 
     return k_fold_by_players(players=[username],
                              fold_count=5,
-                             iterations=10000,
                              depth=4,
                              print_progress=False,
+                             iterations=5000,
                              correlation_metric=correlation_metric,
                              **kwargs)
 
@@ -97,7 +100,7 @@ if __name__ == "__main__":
             # aspects here.
             timestamp = datetime.now().replace(minute=0, second=0, microsecond=0).isoformat()
             try:
-                mkdir(timestamp)
+                mkdir(timestamp + "_season1")
             except:
                 pass # Folder probably already exists
             with open(timestamp + "/" + username + "-generated-" + datetime.now().isoformat() + '.pickle', 'wb') as outputfile:
