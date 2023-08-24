@@ -1,3 +1,4 @@
+from statistics import correlation
 from shepherd import Shepherd, ShepherdConfig
 from pdsf import *
 from helper_fns import *
@@ -11,6 +12,8 @@ from aspects import char_ordering  # separate from the above a) the above is mam
 from game_processing import convert_gamedoc_to_tom_compatible, flip_state, process_lookup2, get_games_for_players, find_distribution_of_charpairs_from_players_collective_games, find_distribution_of_charpairs_for_user_from_gameset
 import gc
 from datetime import datetime
+
+from tom_models.experiment_base_fitting_curve_param import fit_curve_param
 
 with AspectHooks():
     from base_model import *
@@ -48,8 +51,8 @@ def generate_synthetic_data(rgr_control,
                             num_synthetic_players=15,
                             sigmoid_initial_confidence=0.1,
                             initial_exploration=56,
-                            boredom_confidence=0.7, # 1 to disable boredom and keep players indefinitely
-                            prob_bored=0.1,
+                            boredom_confidence=0.9, # 1 to disable boredom and keep players indefinitely
+                            prob_bored=0.25, # 1 to ensure that players are removed when the boredom confidence level is met
                             sigmoid_used="birch controlled",  # "logistic" for logistic curve, "birch" for birch curve.
                             boredom_period=25,
                             birch_c=1):  # boredom period is probably usefully set as (num players / 2) squared. Means the players have the opportunity to play each other, but we're not waiting forever; it's the area of a half of an adjacency matrix, roughly.
@@ -224,8 +227,10 @@ def mitigate_randomness(f, *args, mitigation_iterations=10, init_seed=0, **kwarg
     # sum and normalise the data grouped by charpair
     def normalise(l):
         return sum(l)/mitigation_iterations
-    real_choice_distribution = list(map(normalise, real_choice_counts_by_charpair))
-    simulated_choice_distribution = list(map(normalise, simulated_choice_counts_by_charpair))
+    real_choice_distribution = list(map(normalise, 
+                                        real_choice_counts_by_charpair))
+    simulated_choice_distribution = list(map(normalise,
+                                             simulated_choice_counts_by_charpair))
 
     return real_choice_distribution, simulated_choice_distribution
 
@@ -326,7 +331,7 @@ def grid_search(folds, correlation_metric, depth, iterations, games, players, co
     return performances
 
 
-def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lambda real, sim: kendalltau(real, sim), games=None, optimisation="grid", depth=4, *args, **kwargs):
+def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lambda real, sim: kendalltau(real, sim), games=None, optimisation="old_grid", depth=4, *args, **kwargs):
     if games is None:
         global shepherd
         games = get_games_for_players(players, shepherd)
@@ -344,12 +349,10 @@ def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lamb
         folds.append( [ games[0:start_index]+games[end_index:len(games)], games[start_index:end_index] ] )
 
     performances = list()
-    if optimisation=="grid":
+    if optimisation=="old_grid":
         performances = grid_search(folds, correlation_metric, depth, iterations, games, players, *args, **kwargs)
-    elif optimisation == "simulated annealing":
-        for training, testing in folds:
-            #TODO: put an annealing implementation here
-            pass
+    elif optimisation == "anneal_c_rgr":
+        performances = fit_curve_param(folds, correlation_metric, depth, iterations, games, players, *args, **kwargs)
 
     # perform optimisation on the training fold of games for these players
 
@@ -359,7 +362,6 @@ def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lamb
     # NOTE: assuming that hasn't been updated/replaced
     # performance_values = list(map(lambda x: x[1], performances))
     return list(zip(performances, folds))
-
 
 if __name__ == "__main__":
 

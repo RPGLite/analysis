@@ -1,3 +1,4 @@
+import argparse
 from multiprocessing import Process, Manager
 from threading import Thread
 from datetime import datetime
@@ -44,16 +45,28 @@ prior_distrib_learning_aspects = [
 ]
 
 
-def dump_experimental_result(username, outputfilename, advice, sigmoid_control):
+def dump_experimental_result(username, outputfilename, advice, sigmoid_control, *args, **kwargs):
     import base_model
     from pickle import dump
     from experiments import single_player_annealing_to_rgr
 
     with open(outputfilename, 'wb') as outputfile:
-        dump(single_player_annealing_to_rgr(username=username, advice=advice, birch_c=sigmoid_control), outputfile)
+        dump(single_player_annealing_to_rgr(username=username, advice=advice, birch_c=sigmoid_control, *args, **kwargs), outputfile)
         # dump(single_player_annealing_to_rgr(username=username, birch_c=sigmoid_control), outputfile)
 
 if __name__ == "__main__":
+
+    # Parse experiment arguments
+    parser = argparse.ArgumentParser(prog='RpgliteAnnealingExperiments',
+           description="Fits parameters to a provided list of players to produce realistic datasets of RPGLite play.")
+    parser.add_argument("players",
+                        help="Name of player to run experiment for",
+                        nargs="+",
+                        metavar="username")
+    parser.add_argument("--optimisation",
+                        default="anneal_c_rgr")
+    args = parser.parse_args()
+
     for expname, experiment_aspects in [('sigmoid learning curve', sigmoid_learning_aspects), ('hyperbolic learning', hyperbolic_learning_aspects), ('prior distribution', prior_distrib_learning_aspects)]:
     # for expname, experiment_aspects in [('hyperbolic learning', hyperbolic_learning_aspects)]:
         print(f"Setting up experiments with {expname}")
@@ -98,9 +111,9 @@ if __name__ == "__main__":
             #         populated_movefile_cache[filepath] = moves_to_cache
 
 
-            for username in argv[1:]:
+            for username in args.players:
                 outputfilename = timestamp + f"/{expname}/" + username + f"-birchc_{sigmoid_control}-s1.pickle"
-                experiments[username] = Process(target=dump_experimental_result, args=(username, outputfilename, experiment_aspects, sigmoid_control))
+                experiments[username] = Process(target=dump_experimental_result, args=(username, outputfilename, experiment_aspects, sigmoid_control), kwargs={'optimisation': args.optimisation})
                 experiments[username].start()
                 os.system(f"renice -n -20 -p {experiments[username].pid}")
             try:
