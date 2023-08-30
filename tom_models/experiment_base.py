@@ -1,4 +1,5 @@
 from statistics import correlation
+from typing import Optional
 from shepherd import Shepherd, ShepherdConfig
 from pdsf import *
 from helper_fns import *
@@ -10,10 +11,10 @@ from aspects import handle_player_cannot_win, record_player_sees_winning_team, a
 from aspects import hyperbolic_character_choice_from_win_record, track_game_outcomes, around_choosing_chars_based_on_prior_distribution
 from aspects import char_ordering  # separate from the above a) the above is mammoth and b) it should find a new home
 from game_processing import convert_gamedoc_to_tom_compatible, flip_state, process_lookup2, get_games_for_players, find_distribution_of_charpairs_from_players_collective_games, find_distribution_of_charpairs_for_user_from_gameset
+from dataclasses import dataclass
+from functools import partial
 import gc
-from datetime import datetime
-
-from tom_models.experiment_base_fitting_curve_param import fit_curve_param
+import birch_curve_calulation_utilities as curveutils
 
 with AspectHooks():
     from base_model import *
@@ -40,6 +41,306 @@ season = 1
 change_season(season)
 
 
+@dataclass
+class ModelParameters:
+    c: float
+    curve_inflection_relative_to_numgames: float
+    prob_bored: float
+    boredom_enabled: bool
+    training_data: list
+    testing_data: list
+    assumed_confidence_plateau: float
+    starting_confidence: float
+    iteration_base: int
+    number_simulated_players: int
+    advice: list[tuple[str, str, str]]
+    players:list[str]
+        
+    def __repr__(self) -> str:
+        return f"params for {', '.join(self.players)}:c={self.c}, prob bored={self.prob_bored}, boredom {'en' if self.boredom_enabled else 'dis'}abled, confidence model assumes low of {self.starting_confidence}, high of {self.assumed_confidence_plateau}, iteration base={self.iteration_base}, #simulated players={self.number_simulated_players}, rgr inflection relative to #games={self.curve_inflection_relative_to_numgames}, #training games={len(self.training_data)}, #testing games={len(self.testing_data)}"
+
+    @property
+    def boredom_period(self) -> int:
+        '''
+        Number of games to play before checking player boredom.
+        Attempts to allow every player combo to play each other once on average before checking again.
+        '''
+        return int(self.number_simulated_players**2)/2
+
+    def active_dataset(self, testing) -> list:
+        return self.testing_data if testing else self.training_data
+
+
+    def iterations(self, testing) -> int:
+        if self.boredom_enabled:
+            return self.iteration_base
+        
+        return int(self.number_simulated_players**2 * len(self.active_dataset(testing)) / 2)
+
+    def rgr(self, testing) -> float:
+        '''
+        RGR for this C value, number of games to play, and start/end confidences.
+        '''
+        if not hasattr(self, '_rgr_cache'):
+            self._rgr_cache = dict()
+        if self._rgr_cache.get(testing) is None:
+            num_games_to_confidence = len(self.active_dataset(testing)) * self.curve_inflection_relative_to_numgames
+            self._rgr_cache[testing] = curveutils.rgr_yielding_num_games_for_c(num_games_to_confidence,
+                                                                        self.c,
+                                                                        start=self.starting_confidence,
+                                                                        limit=self.assumed_confidence_plateau)
+        return self._rgr_cache[testing]
+        
+        
+
+
+@dataclass
+class Result:
+    params:ModelParameters
+    real_distribution:list[float]
+    simulated_distribution:list[float]
+    correlation_metric:callable
+    testing: bool
+
+    @property
+    def pval(self) -> float:
+        return self.correlation_metric(self.real_distribution, self.simulated_distribution).pvalue
+
+    @property
+    def statistic(self) -> float:
+        return self.correlation_metric(self.real_distribution, self.simulated_distribution).statistic
+
+    def within_acceptable_bounds(self, pval_threshold:float, statistic_threshold:float) -> bool:
+        return self.pval < pval_threshold and self.statistic > statistic_threshold
+
+    def __repr__(self) -> str:
+        return f"{', '.join(self.params.players)} with c={self.params.c}, rgr={self.params.rgr(self.testing)}, prob_bored={self.params.prob_bored if self.params.boredom_enabled else 'DISABLED'}\tyielded pval={self.pval}, statistic={self.statistic}"
+
+def normalise_distrubutions_from_datsets(results:list,
+                                         randomness_mitigation_iterations: int):
+
+        first = lambda tup: tup[0]
+        second = lambda tup: tup[1]
+        real_world_data = list(map(first, results))
+        simulated_data = list(map(second, results))
+
+        # transform the data into lists of choices for 1st charpair, 2nd charpair, and so on (rather than grouping/ordering by simulation iteration)
+        real_choice_counts_by_charpair = zip(*real_world_data)
+        simulated_choice_counts_by_charpair = zip(*simulated_data)
+
+        # sum and normalise the data grouped by charpair
+        def normalise(l):
+            return sum(l)/randomness_mitigation_iterations
+
+        real_choice_distribution = list(map(normalise, 
+                                            real_choice_counts_by_charpair))
+        simulated_choice_distribution = list(map(normalise,
+                                                simulated_choice_counts_by_charpair))
+
+        return real_choice_distribution, simulated_choice_distribution
+
+def fit_curve_param(folds,
+                    correlation_metric,
+                    depth:int,
+                    iterations:int, # Number of games to simulate when generating data
+                    games,
+                    players:list[str],
+                    advice:list[tuple[str, str, str]],
+                    cvals_to_explore:list[float]=[0.1, 0.2, 0.5, 1, 2, 5, 10],
+                    inflection_point_positions:list[float]=[0.25, 0.5, 1, 2], # Proportion of games used to calculate rgr
+                    correlation_threshold=0.20,
+                    correlation_limit_good=0.4,
+                    pval_threshold=0.05,
+                    pval_threshold_good=0.02,
+                    starting_confidence=0.1,
+                    assumed_confidence_plateau=0.9,
+                    random_seed:int=0,
+                    randomness_mitigation_iterations=1, # runs model multiple times and normalises results. Maybe I should always leave this as 1?
+                    num_simulated_players=15,
+                    prob_bored_to_explore=[0.25, 0.75, 1],
+                    test_with_no_boredom=True,
+                    print_debuglines=False,
+                    *args,
+                    **kwargs):
+    model_parameters_by_fold:list[list[ModelParameters]] = []
+
+    for training, testing in folds:
+        model_parameters = list()
+        for c in cvals_to_explore:
+            for curve_inflection_position_relative_to_numgames in inflection_point_positions:
+                for prob_bored in prob_bored_to_explore:
+                    model_parameters.append(ModelParameters(c=c,
+                                                            curve_inflection_relative_to_numgames=curve_inflection_position_relative_to_numgames,
+                                                            prob_bored=prob_bored,
+                                                            boredom_enabled=True,
+                                                            training_data=training,
+                                                            testing_data=testing,
+                                                            assumed_confidence_plateau=assumed_confidence_plateau,
+                                                            starting_confidence=starting_confidence,
+                                                            iteration_base=iterations,
+                                                            number_simulated_players=num_simulated_players,
+                                                            advice=advice,
+                                                            players=players))
+                if test_with_no_boredom:
+                    model_parameters.append(ModelParameters(c=c,
+                                                            curve_inflection_relative_to_numgames=curve_inflection_position_relative_to_numgames,
+                                                            prob_bored=0.0001,
+                                                            boredom_enabled=False,
+                                                            training_data=training,
+                                                            testing_data=testing,
+                                                            assumed_confidence_plateau=1-starting_confidence, # ideally it'd be 1, but then we can't calculate the RGR.
+                                                            starting_confidence=starting_confidence,
+                                                            iteration_base=iterations,
+                                                            number_simulated_players=num_simulated_players,
+                                                            advice=advice,
+                                                            players=players))
+        model_parameters_by_fold.append(model_parameters)
+
+    fold_results = [] # Result for each testing fold in folds.
+    foldnum = 0
+    lasttime = datetime.now()
+    for model_parameters in model_parameters_by_fold:
+        foldnum += 1
+        param_results:list[Result] = []
+        for params in model_parameters:
+
+            training, testing = params.training_data, params.testing_data
+
+            seed(random_seed)
+            random_seed += 1
+
+            results = []
+            for _ in range(randomness_mitigation_iterations):
+                results.append(compare_with_multiple_players(rgr_control=params.rgr(testing=False),
+                                                             iterations=params.iterations(testing=False),
+                                                             games=params.training_data,
+                                                             players=params.players,
+                                                             birch_c=params.c,
+                                                             sigmoid_initial_confidence=params.starting_confidence,
+                                                             boredom_confidence=params.assumed_confidence_plateau,
+                                                             num_synthetic_players=params.number_simulated_players,
+                                                             boredom_period=params.boredom_period,
+                                                             prob_bored=params.prob_bored,
+                                                             advice=params.advice,
+                                                             *args,
+                                                             **kwargs))
+            
+            # We need to average the distributions from the set of results we generated
+            # (one set of results for every randomness mitigation iteration)
+            real_distribution, simulated_distribution = normalise_distrubutions_from_datsets(results,
+                                                                                             randomness_mitigation_iterations)
+            
+            param_results.append(Result(params=params,
+                                        real_distribution=real_distribution,
+                                        simulated_distribution=simulated_distribution,
+                                        correlation_metric=correlation_metric,
+                                        testing=False))
+
+            if print_debuglines:
+                currtime = datetime.now()
+                print(f"DEBUG took {(currtime-lasttime).total_seconds()}s  ::\t{param_results[-1]}")
+                lasttime = currtime
+
+        # Now we've iterated through all of the parameters we wanted to anneal on for this fold.
+        # Which was "best"?
+
+        # Filter for "good" correlation and choose the best p-val which meets that threshold
+        # If no good correlations exist, filter for low correlation and choose the best p-val which meets that threshold
+        # If we don't even have low correlation, pick the best p-val for a positive correlation
+        # If that doesn't exist, pick the highest correlation.
+
+        # good_correlation = partial(filter, lambda result: result.statistic > correlation_limit_good)
+        # low_correlation = partial(filter, lambda result: result.statistic > correlation_threshold)
+        # any_correlation = partial(filter, lambda result: result.statistic > 0)
+
+        # good_pval = partial(filter, lambda result: result.pval < 0.01)
+        # low_pval = partial(filter, lambda result: result.pval < 0.02)
+        # usable_pval = partial(filter, lambda result: result.pval < 0.05)
+
+        # ideal_result = None # Will eventually become the result that meets our correlation and pvalue thresholds.
+        # for result_filter in [good_correlation,
+        #                       low_correlation,
+        #                       any_correlation]:
+        #     results_matching_correlation_filter = list(result_filter(param_results))
+        #     results_matching_pval_filter = list()
+
+        #     if len(results_matching_correlation_filter) == 0:
+        #         continue # We need a less strict filter, so don't select anything from this one.
+
+        #     # We've got at least one result matching our filter, so further filter by pval
+        #     for pval_filter in [good_pval,
+        #                         low_pval,
+        #                         usable_pval]:
+        #         results_matching_pval_filter = list(pval_filter(results_matching_correlation_filter))
+
+        #         if len(results_matching_pval_filter) == 0:
+        #             continue
+                
+        #         ideal_result = max(results_matching_pval_filter, key=lambda result: result.statistic)  # A high correlation we're certain of to some degree
+        #         break
+
+        #     if ideal_result is not None:
+        #         break
+
+        # if ideal_result is None:
+        #     ideal_result = max(param_results, key=lambda result: result.statistic)
+
+        usable_results = [res for res in param_results if res.within_acceptable_bounds(pval_threshold, correlation_threshold)]
+
+
+        # Now, run with testing fold to generate final results.
+        test_results = list()
+        for res in usable_results:
+            print(f"When training fold {foldnum} for {', '.join(players)}, found c={res.params.c}\trgr={res.params.rgr(testing=False)}\tpval={res.pval}\tstatistic={res.statistic}")
+
+            param = res.params
+            param_testing_results = list()
+            for _ in range(randomness_mitigation_iterations):
+                    param_testing_results.append(compare_with_multiple_players(rgr_control=param.rgr(testing=True),
+                                                                iterations=param.iterations(testing=True),
+                                                                games=param.training_data,
+                                                                players=param.players,
+                                                                birch_c=param.c,
+                                                                sigmoid_initial_confidence=param.starting_confidence,
+                                                                boredom_confidence=param.assumed_confidence_plateau,
+                                                                num_synthetic_players=param.number_simulated_players,
+                                                                boredom_period=param.boredom_period,
+                                                                prob_bored=param.prob_bored,
+                                                                advice=param.advice,
+                                                                *args,
+                                                                **kwargs))
+
+            # We need to average the distributions from the set of results we generated
+            # (one set of results for every randomness mitigation iteration)
+            real_distribution, simulated_distribution = normalise_distrubutions_from_datsets(param_testing_results,
+                                                                                            randomness_mitigation_iterations)
+            test_res = Result(params=param,
+                              real_distribution=real_distribution,
+                              simulated_distribution=simulated_distribution,
+                              correlation_metric=correlation_metric,
+                              testing=True)
+
+            print(f"When testing for {foldnum} for {', '.join(players)}, found c={test_res.params.c}\trgr={test_res.params.rgr(testing=True)}\tprob_bored={test_res.params.prob_bored}\tpval={test_res.pval}\tstatistic={test_res.statistic}")
+            if test_res.within_acceptable_bounds(pval_threshold, correlation_threshold):
+                test_results.append(test_res)
+            else:
+                print("Discarding param; didn't meet thresholds for significance under test.")
+
+        fold_results.append(test_results)
+
+        print(f"Finished fold {foldnum} for {', '.join(players)} at {datetime.now().time().isoformat(timespec='auto')}.")
+        print()
+    
+    print("\n")
+    print(f"Conclusion for {', '.join(players)}:")
+    for res_list in fold_results:
+        for res in res_list:
+            print(f"\tpval {res.pval}\tstatistic {res.statistic}\trgr {res.params.rgr(testing=True)}\tc {res.params.c}")
+
+    return fold_results
+        
+
+
 def generate_synthetic_data(rgr_control,
                             iterations,
                             environment,
@@ -50,7 +351,7 @@ def generate_synthetic_data(rgr_control,
                             garbage_collect_intermittently=False,
                             num_synthetic_players=15,
                             sigmoid_initial_confidence=0.1,
-                            initial_exploration=56,
+                            initial_exploration=28,
                             boredom_confidence=0.9, # 1 to disable boredom and keep players indefinitely
                             prob_bored=0.25, # 1 to ensure that players are removed when the boredom confidence level is met
                             sigmoid_used="birch controlled",  # "logistic" for logistic curve, "birch" for birch curve.
@@ -109,10 +410,7 @@ def generate_synthetic_data(rgr_control,
     for game_number in range(iterations):
         # 1. Play the game
         matchup = sample(players, 2)
-        try:
-            play_game(matchup, environment)
-        except:
-            pass
+        play_game(matchup, environment)
 
         # 2. Every few games, manage playerbase.
         # I think this is usefully set at around (num players / 2) squared.
@@ -351,17 +649,22 @@ def k_fold_by_players(players, iterations, fold_count=5, correlation_metric=lamb
     performances = list()
     if optimisation=="old_grid":
         performances = grid_search(folds, correlation_metric, depth, iterations, games, players, *args, **kwargs)
+        print(performances)
+
+        # Pick the best of the testing correlations, according to what we got from the above grid search
+        # NOTE: assuming that hasn't been updated/replaced
+        # performance_values = list(map(lambda x: x[1], performances))
+        return list(zip(performances, folds))
     elif optimisation == "anneal_c_rgr":
         performances = fit_curve_param(folds, correlation_metric, depth, iterations, games, players, *args, **kwargs)
+        print(performances)
+        return performances
+    else:
+        print(f"Unrecognised optimisation algorithm {optimisation}; aborting.")
+        exit()
 
     # perform optimisation on the training fold of games for these players
 
-    print(performances)
-
-    # Pick the best of the testing correlations, according to what we got from the above grid search
-    # NOTE: assuming that hasn't been updated/replaced
-    # performance_values = list(map(lambda x: x[1], performances))
-    return list(zip(performances, folds))
 
 if __name__ == "__main__":
 

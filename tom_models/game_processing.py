@@ -3,6 +3,7 @@ from pickle import load, dump
 from base_model import season
 from aspects import char_ordering
 from helper_fns import pairs
+# from functools import lru_cache
 import os
 
 
@@ -67,6 +68,7 @@ def get_games_for_players(players, shepherd):
     return games
 
 
+# @lru_cache
 def find_distribution_of_charpairs_from_players_collective_games(players, gameset):
     distribution = dict()
     for player in players:

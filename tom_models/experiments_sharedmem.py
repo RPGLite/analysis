@@ -1,5 +1,5 @@
 import argparse
-from multiprocessing import Process, Manager
+from multiprocessing import Process, Manager, Pool
 from threading import Thread
 from datetime import datetime
 from sys import argv
@@ -16,7 +16,7 @@ hyperbolic_learning_aspects = [
         ('encore', 'play_game', record_simulated_choices),
         ('encore', 'play_game', track_game_outcomes),
         ('encore', 'play_game', record_player_sees_winning_team),
-        ('encore', 'get_moves_from_table', best_move_generator()),
+        ('encore', 'get_moves_from_table', choose_best_moves),
         ('error_handler', 'take_turn', handle_player_cannot_win),
 ]
 sigmoid_learning_aspects = [
@@ -28,33 +28,42 @@ sigmoid_learning_aspects = [
         ('encore', 'play_game', record_simulated_choices),
         ('encore', 'play_game', track_game_outcomes),
         ('encore', 'play_game', record_player_sees_winning_team),
-        ('encore', 'get_moves_from_table', best_move_generator()),
+        ('encore', 'get_moves_from_table', choose_best_moves),
         ('error_handler', 'take_turn', handle_player_cannot_win),
 ]
 prior_distrib_learning_aspects = [
         ('prelude', 'choose*', update_confidence_model),
         # ('around', 'choose*', hyperbolic_character_choice_from_win_record),
-        ('around', 'generate*', around_simulation_records_prior),
-        ('around', 'choose*', around_choosing_chars_based_on_prior_distribution),
+        ('within', 'choose*', fuzz_learning_by_prior_distribution),
+        # ('around', 'generate*', around_simulation_records_prior),
+        # ('around', 'choose*', around_choosing_chars_based_on_prior_distribution),
         # ('around', 'choose*', around_choosing_chars_based_on_sigmoid),
         ('encore', 'play_game', record_simulated_choices),
         ('encore', 'play_game', track_game_outcomes),
         ('encore', 'play_game', record_player_sees_winning_team),
-        ('encore', 'get_moves_from_table', best_move_generator()),
+        ('encore', 'get_moves_from_table', choose_best_moves),
         ('error_handler', 'take_turn', handle_player_cannot_win),
 ]
 
 
-def dump_experimental_result(username, outputfilename, advice, sigmoid_control, *args, **kwargs):
+def dump_experimental_result(username, outputfilename, advice_key, sigmoid_control, verbose=False, *args, **kwargs):
     import base_model
     from pickle import dump
     from experiments import single_player_annealing_to_rgr
 
+    kwargs.update({'print_debuglines': verbose})
+    if isinstance(sigmoid_control, int) or isinstance(sigmoid_control, float):
+        kwargs.update({'birch_c': sigmoid_control})
+
+    advice = learning_models[advice_key]
+
     with open(outputfilename, 'wb') as outputfile:
-        dump(single_player_annealing_to_rgr(username=username, advice=advice, birch_c=sigmoid_control, *args, **kwargs), outputfile)
-        # dump(single_player_annealing_to_rgr(username=username, birch_c=sigmoid_control), outputfile)
+        dump(single_player_annealing_to_rgr(username=username, advice=advice, *args, **kwargs), outputfile)
+    print(f"Dumped contents for {username}")
 
 if __name__ == "__main__":
+
+    timestamp = datetime.now().replace(second=0, microsecond=0).isoformat()
 
     # Parse experiment arguments
     parser = argparse.ArgumentParser(prog='RpgliteAnnealingExperiments',
@@ -65,63 +74,62 @@ if __name__ == "__main__":
                         metavar="username")
     parser.add_argument("--optimisation",
                         default="anneal_c_rgr")
+    parser.add_argument('--learn_with',
+                        help="IDs of learning models to run experiments for",
+                        nargs='+',
+                        required=True,
+                        dest="learning_models",
+                        metavar="learning_model")
+    parser.add_argument("-d", "--result_dir", nargs='?', default=timestamp)
+    parser.add_argument('-v', '--verbose', action='store_true')
     args = parser.parse_args()
 
-    for expname, experiment_aspects in [('sigmoid learning curve', sigmoid_learning_aspects), ('hyperbolic learning', hyperbolic_learning_aspects), ('prior distribution', prior_distrib_learning_aspects)]:
-    # for expname, experiment_aspects in [('hyperbolic learning', hyperbolic_learning_aspects)]:
-        print(f"Setting up experiments with {expname}")
-        for sigmoid_control in [1, 2, 0.5]:
-        # for sigmoid_control in [1]:
-            print(f"Setting up experiments with birch curve control: {sigmoid_control}")
-            timestamp = datetime.now().replace(second=0, microsecond=0).isoformat()
+    learning_models = {
+        'sigmoid_learning_curve': sigmoid_learning_aspects,
+        'hyperbolic_learning': hyperbolic_learning_aspects,
+        'prior_distribution': prior_distrib_learning_aspects,
+    }
+
+    try:
+        mkdir(args.result_dir)
+    except Exception as e:
+        print(e)
+        pass # Folder probably already exists
+
+    with Pool(12, initializer=lambda : os.nice(-20)) as pool:
+        experiment_procs = list()
+        for expname in args.learning_models:
+            if expname not in learning_models.keys():
+                print(f"Valid learning models are: {', '.join(learning_models.keys())}")
+                exit()
+            print(f"Setting up experiments with {expname}")
+
             try:
-                mkdir(timestamp)
+                mkdir(args.result_dir + f"/{expname}")
             except Exception as e:
                 print(e)
                 pass # Folder probably already exists
 
+            for sigmoid_control in [1, 2, 0.5] if args.optimisation == 'old_grid' else ['annealed']:
+                print(f"Setting up experiments with birch curve control: {sigmoid_control}")
+
+                for username in args.players:
+                    outputfilename = args.result_dir + f"/{expname}/" + username + f"-birchc_{sigmoid_control}-s1.pickle"
+                    experiment_procs.append(pool.apply_async(dump_experimental_result,
+                                                             args=(username, outputfilename, expname, sigmoid_control, args.verbose),
+                                                             kwds={'optimisation': args.optimisation}))
+
+        # Make sure all experiments are complete before closing pool.
+
+        # catch exception if results are not ready yet
+        finished = False
+        while not finished:
             try:
-                mkdir(timestamp + f"/{expname}")
-            except Exception as e:
-                print(e)
-                pass # Folder probably already exists
-
-            experiments:dict[str:Process] = dict() # maps usernames to experiment processes
-
-            # populated_movefile_cache = dict()
-
-            # # Populate movefile cache
-            # lookup_file_location = "../lookupV2/season1"
-            # for filename in os.listdir(lookup_file_location):
-            #     print(filename)
-            #     filepath = os.path.join(lookup_file_location, filename)
-            #     if len(filename) == 6 and os.path.isfile(os.path.join(lookup_file_location, filename)):
-            #         moves_to_cache = dict()
-            #         with open(filepath, 'r') as movefile:
-            #             for line in movefile.readlines():
-            #                 separator_index = line.index(':')
-            #                 statestring = line[:separator_index]
-            #                 unparsed_state_map = line[separator_index+2:-2] # Skip the colon, and both the curly braces on the unparsed dict, and the newline char at the end
-            #                 mapping = dict()
-            #                 for statepair in unparsed_state_map.split(','):
-            #                     segments = statepair.split(':')
-            #                     mapping[segments[0]] = float(segments[1])
-
-            #                 moves_to_cache[statestring] = mapping
-            #         populated_movefile_cache[filepath] = moves_to_cache
-
-
-            for username in args.players:
-                outputfilename = timestamp + f"/{expname}/" + username + f"-birchc_{sigmoid_control}-s1.pickle"
-                experiments[username] = Process(target=dump_experimental_result, args=(username, outputfilename, experiment_aspects, sigmoid_control), kwargs={'optimisation': args.optimisation})
-                experiments[username].start()
-                os.system(f"renice -n -20 -p {experiments[username].pid}")
-            try:
-                for experiment in experiments.values():
-                    experiment.join()
-            except Exception as err:
-                print(err)
-                print(f"Got exception, terminating all processes.")
-                for experiment in experiments.values():
-                    if not experiment.is_alive():
-                        experiment.terminate()
+                ready = [exp.ready() for exp in experiment_procs]
+                successful = [exp.successful() for exp in experiment_procs]
+                finished = True
+            except Exception:
+                pass
+        # raise exception reporting exceptions received from workers
+        if all(ready) and not all(successful):
+            raise Exception(f'Workers raised following exceptions {[exp._value for exp in experiment_procs if not exp.successful()]}')

@@ -106,6 +106,27 @@ def around_choosing_chars_based_on_sigmoid(next_around, target, _actor, _ctx, en
         return ret
 
 
+def choose_best_moves(target, ret, *args, **kwargs):
+    '''
+    Replaces a set of possible moves from base_model.get_moves_from_table with the single best move, forcing that to be taken.
+    Args:
+        target: base_model.get_moves_from_table
+        ret: the list of best moves to be taken at the game's current state
+        *args: args for the function
+        **kwargs: keyword args for the function
+
+    Returns: a list containing only the best move of all moves in ret
+
+    Note: environment here is a reference to the outer scoped 'environment' variable as passed into the function containing this func def.
+    '''
+    gamedoc = args[0]
+
+    if list(map(str, gamedoc.get('moves', [None, None])[-2:])) == ['skip', 'skip']:
+        return ret
+
+    sorted_moves = sorted(ret.items(), key=lambda move: -move[1])
+    return {sorted_moves[0][0]: sorted_moves[0][1]}
+
 def best_move_generator(environment={}):
     def choose_best_moves(target, ret, *args, **kwargs):
         '''
@@ -412,3 +433,45 @@ def fuzz_nonlocalMoveLookup(steps, gamedoc, *args, **kwargs):
     steps = steps[:6] + [import_requests_ast.body[0], get_move_ast.body[0]] + steps[8:]
     return steps
 
+
+def fuzz_learning_by_prior_distribution(steps, target, actor, env, *args, **kwargs):
+
+    # Before we fuzz, we need to make sure the prior distribution is set up in the game's environment.
+    # Calculate and inject it if it's not already there.
+    if 'simulation prior distrib' not in env:
+        # Grab players and games from an earlier stack frame
+        # (avoids weaving an aspect to collect the info)
+        frame_to_find_name = "compare_with_multiple_players"
+        for frameinfo in inspect.stack():
+            if frameinfo.function == frame_to_find_name:
+                break
+        games = frameinfo.frame.f_locals['games']
+        players = frameinfo.frame.f_locals['players']
+
+        from experiment_base import find_distribution_of_charpairs_from_players_collective_games
+        env['simulation prior distribution'] = find_distribution_of_charpairs_from_players_collective_games(players, games)
+
+    get_choices_from_prior_dist_injected_code = '''
+players = _context['players']
+games = _env['games']
+
+distribution = _env['simulation prior distribution']
+possible_choices = list()
+for pair, count in distribution.items():
+    for _ in range(count):
+        possible_choices.append(pair)
+
+char_class_map = {
+    "K": Knight,
+    "A": Archer,
+    "R": Rogue,
+    "W": Wizard,
+    "H": Healer,
+    "B": Barbarian,
+    "M": Monk,
+    "G": Gunner
+}
+chars_chosen = [char_class_map[char] for char in choice(possible_choices)]
+    '''
+    to_inject = ast.parse(get_choices_from_prior_dist_injected_code)
+    return [steps[0]] + to_inject.body + [steps[2]]

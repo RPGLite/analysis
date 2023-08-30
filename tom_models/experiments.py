@@ -56,7 +56,7 @@ def compare_s1_s2(s1_pickled_filename):
         dump(performances, outfile)
 
 
-def single_player_annealing_to_rgr(username, **kwargs):
+def single_player_annealing_to_rgr(username, iterations=10000, **kwargs):
     '''
     Finds a good RGR for simulating the given user playing S1.
     Grid-searches for a good rgr, validates via k-fold validation.
@@ -83,7 +83,7 @@ def single_player_annealing_to_rgr(username, **kwargs):
                              fold_count=5,
                              depth=4,
                              print_progress=False,
-                             iterations=5000,
+                             iterations=iterations,
                              correlation_metric=correlation_metric,
                              **kwargs)
 
