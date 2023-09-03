@@ -7,14 +7,12 @@ from random import seed
 from datetime import datetime
 from scipy.stats import kendalltau
 from scipy.optimize import dual_annealing
-from aspects import handle_player_cannot_win, record_player_sees_winning_team, around_choosing_chars_based_on_sigmoid, record_simulated_choices, best_move_generator, update_confidence_model
-from aspects import hyperbolic_character_choice_from_win_record, track_game_outcomes, around_choosing_chars_based_on_prior_distribution
-from aspects import char_ordering  # separate from the above a) the above is mammoth and b) it should find a new home
+from aspects import *
 from game_processing import convert_gamedoc_to_tom_compatible, flip_state, process_lookup2, get_games_for_players, find_distribution_of_charpairs_from_players_collective_games, find_distribution_of_charpairs_for_user_from_gameset
 from dataclasses import dataclass
 from functools import partial
 import gc
-import birch_curve_calulation_utilities as curveutils
+import birch_curve_calculation_utilities as curveutils
 
 with AspectHooks():
     from base_model import *
@@ -53,11 +51,32 @@ class ModelParameters:
     starting_confidence: float
     iteration_base: int
     number_simulated_players: int
-    advice: list[tuple[str, str, str]]
+    advice: list[tuple[str, str, str|callable]]
     players:list[str]
+    args:list[any]
+    kwargs:dict[str:any]
         
     def __repr__(self) -> str:
         return f"params for {', '.join(self.players)}:c={self.c}, prob bored={self.prob_bored}, boredom {'en' if self.boredom_enabled else 'dis'}abled, confidence model assumes low of {self.starting_confidence}, high of {self.assumed_confidence_plateau}, iteration base={self.iteration_base}, #simulated players={self.number_simulated_players}, rgr inflection relative to #games={self.curve_inflection_relative_to_numgames}, #training games={len(self.training_data)}, #testing games={len(self.testing_data)}"
+
+    def __getstate__(self) -> object:
+        state = self.__dict__.copy()
+        pickleable_advice = list()
+        for type, join_point, aspect in state['advice']:
+            pickleable_advice.append((type, join_point, aspect.__name__))
+        state['advice'] = pickleable_advice
+        return state
+
+    def __setstate__(self, d):
+        self.__dict__ = d
+        unpickled_advice = list()
+        for type, join_point, aspect in d['advice']:
+            unpickled_advice.append((type, join_point, eval(aspect)))
+        self.advice = unpickled_advice
+        if 'args' not in d:
+            self.args = list()
+        if 'kwargs' not in d:
+            self.kwargs = dict()
 
     @property
     def boredom_period(self) -> int:
@@ -69,7 +88,6 @@ class ModelParameters:
 
     def active_dataset(self, testing) -> list:
         return self.testing_data if testing else self.training_data
-
 
     def iterations(self, testing) -> int:
         if self.boredom_enabled:
@@ -91,6 +109,22 @@ class ModelParameters:
                                                                         limit=self.assumed_confidence_plateau)
         return self._rgr_cache[testing]
         
+    def run_experiment(self, testing, correlation_metric):
+        real, synthetic = compare_with_multiple_players(rgr_control=self.rgr(testing=False),
+                                                                    iterations=self.iterations(testing=False),
+                                                                    games=self.training_data,
+                                                                    players=self.players,
+                                                                    birch_c=self.c,
+                                                                    sigmoid_initial_confidence=self.starting_confidence,
+                                                                    boredom_confidence=self.assumed_confidence_plateau,
+                                                                    num_synthetic_players=self.number_simulated_players,
+                                                                    boredom_period=self.boredom_period,
+                                                                    prob_bored=self.prob_bored,
+                                                                    advice=self.advice,
+                                                                    *self.args,
+                                                                    **self.kwargs)
+        return Result(self, real, synthetic, correlation_metric, testing)
+        
         
 
 
@@ -99,8 +133,16 @@ class Result:
     params:ModelParameters
     real_distribution:list[float]
     simulated_distribution:list[float]
-    correlation_metric:callable
+    correlation_metric:Optional[callable]
     testing: bool
+
+    def __getstate__(self) -> object:
+        return {k: v for k, v in self.__dict__.items() if not callable(v)}
+
+    def __setstate__(self, d) -> object:
+        self.__dict__ = d
+        if 'correlation_metric' not in d or not callable(d['correlation_metric']):
+            self.correlation_metric = kendalltau
 
     @property
     def pval(self) -> float:
@@ -180,7 +222,9 @@ def fit_curve_param(folds,
                                                             iteration_base=iterations,
                                                             number_simulated_players=num_simulated_players,
                                                             advice=advice,
-                                                            players=players))
+                                                            players=players,
+                                                            args=args,
+                                                            kwargs=kwargs))
                 if test_with_no_boredom:
                     model_parameters.append(ModelParameters(c=c,
                                                             curve_inflection_relative_to_numgames=curve_inflection_position_relative_to_numgames,
@@ -193,7 +237,9 @@ def fit_curve_param(folds,
                                                             iteration_base=iterations,
                                                             number_simulated_players=num_simulated_players,
                                                             advice=advice,
-                                                            players=players))
+                                                            players=players,
+                                                            args=args,
+                                                            kwargs=kwargs))
         model_parameters_by_fold.append(model_parameters)
 
     fold_results = [] # Result for each testing fold in folds.
@@ -342,54 +388,40 @@ def fit_curve_param(folds,
 
 
 def generate_synthetic_data(rgr_control,
-                            iterations,
                             environment,
+                            params:ModelParameters,
                             print_progress=False,
-                            advice : list[tuple[str, str, str]] = list() , # A list of tuples of string join points, aspects to apply, and types of aspect to weave.
-                            games=list(),
-                            players=list(),
-                            garbage_collect_intermittently=False,
-                            num_synthetic_players=15,
-                            sigmoid_initial_confidence=0.1,
                             initial_exploration=28,
-                            boredom_confidence=0.9, # 1 to disable boredom and keep players indefinitely
-                            prob_bored=0.25, # 1 to ensure that players are removed when the boredom confidence level is met
-                            sigmoid_used="birch controlled",  # "logistic" for logistic curve, "birch" for birch curve.
                             boredom_period=25,
-                            birch_c=1):  # boredom period is probably usefully set as (num players / 2) squared. Means the players have the opportunity to play each other, but we're not waiting forever; it's the area of a half of an adjacency matrix, roughly.
+                            *args,
+                            **kwargs):  # boredom period is probably usefully set as (num players / 2) squared. Means the players have the opportunity to play each other, but we're not waiting forever; it's the area of a half of an adjacency matrix, roughly.
+
+    advice = params.advice
+    iterations = params.iterations
+    num_synthetic_players = params.number_simulated_players
+    sigmoid_initial_confidence = params.starting_confidence
+    boredom_confidence = params.assumed_confidence_plateau
+    prob_bored = params.prob_bored
+    birch_c = params.c
 
     # Some setup for properly passing values around.
     environment['special vals'] = dict()
     environment['special vals']['rgr'] = rgr_control
-    environment['special vals']['sigmoid type'] = sigmoid_used
+    environment['special vals']['sigmoid type'] = "birch controlled"
     environment['special vals']['birch c'] = birch_c
     environment['special vals']['sigmoid initial confidence'] = sigmoid_initial_confidence
     environment['special vals']['initial_exploration'] = initial_exploration
 
     rule_removers = list()
-    if len(advice) == 0:
-        # manual configuration
-        rule_removers.append(AspectHooks.add_prelude('choose*', update_confidence_model))
-        rule_removers.append(AspectHooks.add_around('choose*', hyperbolic_character_choice_from_win_record))
-        # rule_removers.append(AspectHooks.add_around('generate*', around_simulation_records_prior))
-        # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_prior_distribution))
-        # rule_removers.append(AspectHooks.add_around('choose*', around_choosing_chars_based_on_sigmoid))
-        rule_removers.append(AspectHooks.add_encore('play_game', record_simulated_choices))
-        rule_removers.append(AspectHooks.add_encore('play_game', track_game_outcomes))
-        rule_removers.append(AspectHooks.add_encore('play_game', record_player_sees_winning_team))
-        rule_removers.append(AspectHooks.add_encore('get_moves_from_table', best_move_generator()))
-        rule_removers.append(AspectHooks.add_error_handler('take_turn', handle_player_cannot_win))
-    else:
-        aspect_application_methods = {
-            'prelude': AspectHooks.add_prelude,
-            'around': AspectHooks.add_around,
-            'encore': AspectHooks.add_encore,
-            'within': AspectHooks.add_fuzzer,
-            'error_handler': AspectHooks.add_error_handler,
-        }
-        for aspect_type, join_point, aspect in advice:
-            rule_removers.append(aspect_application_methods[aspect_type](join_point, aspect))
-        # rule_removers = [aspect_application_methods[aspect_type](join_point, aspect) for aspect_type, join_point, aspect in advice]
+    aspect_application_methods = {
+        'prelude': AspectHooks.add_prelude,
+        'around': AspectHooks.add_around,
+        'encore': AspectHooks.add_encore,
+        'within': AspectHooks.add_fuzzer,
+        'error_handler': AspectHooks.add_error_handler,
+    }
+    for aspect_type, join_point, aspect in advice:
+        rule_removers.append(aspect_application_methods[aspect_type](join_point, aspect))
 
     # Our base model is now aspect-applied.
     # From here, we'll produce a pool of synthetic players and simulate games, generating data as we go.
@@ -437,9 +469,6 @@ def generate_synthetic_data(rgr_control,
             while len(players) < num_synthetic_players:
                 players.append(total_players)
                 total_players += 1
-
-            if garbage_collect_intermittently:
-                gc.collect()
 
             # Printing logic can go here.
             if print_progress:

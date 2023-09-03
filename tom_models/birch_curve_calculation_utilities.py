@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from functools import partial
+from functools import partial, lru_cache
 
 
 def delta_birch(c, rgr, y):
@@ -20,13 +20,14 @@ def gencurve(c, rgr, start=0.1, limit=0.9):
   plt.show()
 
 
+@lru_cache
 def curve_points(c, rgr, start=0.1, limit=0.9):
   points = [start]
   while points[-1] < limit:
     points.append(points[-1] + delta_birch(c, rgr, points[-1]))
   return points
 
-
+@lru_cache
 def rgr_yielding_num_games_for_c(num_games, c, start=0.1, limit=0.9):
   rgr=0.9999
   while len(curve_points(c, rgr, start, limit)) < num_games:
