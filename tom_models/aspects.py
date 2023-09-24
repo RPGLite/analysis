@@ -433,15 +433,13 @@ def fuzz_nonlocalMoveLookup(steps, gamedoc, *args, **kwargs):
     steps = steps[:6] + [import_requests_ast.body[0], get_move_ast.body[0]] + steps[8:]
     return steps
 
-
-def fuzz_learning_by_prior_distribution(steps, target, actor, env, *args, **kwargs):
-
+def prelude_before_learning_by_prior_distribution(target, actor, gamedoc, env, *args, **kwargs):
     # Before we fuzz, we need to make sure the prior distribution is set up in the game's environment.
     # Calculate and inject it if it's not already there.
-    if 'simulation prior distrib' not in env:
+    if 'simulation prior distribution' not in env:
         # Grab players and games from an earlier stack frame
         # (avoids weaving an aspect to collect the info)
-        frame_to_find_name = "compare_with_multiple_players"
+        frame_to_find_name = "generate_charpair_distributions"
         for frameinfo in inspect.stack():
             if frameinfo.function == frame_to_find_name:
                 break
@@ -451,6 +449,7 @@ def fuzz_learning_by_prior_distribution(steps, target, actor, env, *args, **kwar
         from experiment_base import find_distribution_of_charpairs_from_players_collective_games
         env['simulation prior distribution'] = find_distribution_of_charpairs_from_players_collective_games(players, games)
 
+def fuzz_learning_by_prior_distribution(steps, target, actor, env, *args, **kwargs):
     get_choices_from_prior_dist_injected_code = '''
 players = _context['players']
 games = _env['games']
@@ -472,6 +471,6 @@ char_class_map = {
     "G": Gunner
 }
 chars_chosen = [char_class_map[char] for char in choice(possible_choices)]
-    '''
+'''
     to_inject = ast.parse(get_choices_from_prior_dist_injected_code)
     return [steps[0]] + to_inject.body + [steps[2]]

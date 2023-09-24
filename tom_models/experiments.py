@@ -14,7 +14,7 @@ def compare_s1_s2(s1_pickled_filename):
     s2_data = dict()
     username = s1_pickled_filename.split('-')[0]
     with AspectHooks():
-        from experiment_base import change_season, mitigate_randomness, compare_with_multiple_players, get_moves_from_table
+        from experiment_base import change_season, mitigate_randomness, generate_charpair_distributions, get_moves_from_table
 
     # Apply memory optimisation fuzzer
     from aspects import fuzz_nonlocalMoveLookup
@@ -42,7 +42,7 @@ def compare_s1_s2(s1_pickled_filename):
 
         s1_rgr = s1_data[fold_index][0][0]
 
-        test_real, test_sim = mitigate_randomness(compare_with_multiple_players,
+        test_real, test_sim = mitigate_randomness(generate_charpair_distributions,
                                                   s1_rgr,  # Should this be the best rgr found, not the one found for each original fold?
                                                   players=[username],
                                                   games=testing,

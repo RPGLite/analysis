@@ -19,6 +19,8 @@ class AspectHooks:
     treat_rules_as_dynamic = False
     rule_cache = dict()
     deep_apply = False
+    cache_fuzz_results = True
+    _cached_fuzzer_applications = dict()
 
     def __enter__(self, *args, **kwargs):
         self.old_import = __import__
@@ -55,18 +57,28 @@ class AspectHooks:
                     t = target
 
                     if fuzzers is not None and fuzzers != []:
-                        code = dedent(inspect.getsource(t))
-                        target_ast = ast.parse(code)
-                        funcbody_steps = target_ast.body[0].body  # Assume we've got a module object containing only a function definition.
 
-                        for fuzzer in fuzzers:
-                            non_inline_changed_steps = fuzzer(funcbody_steps, *args, **kwargs)
+                        cache_key = tuple([str(fuzzer) for fuzzer in fuzzers]+ [str(target)])
+                        if self.cache_fuzz_results and self._cached_fuzzer_applications.get(cache_key) is not None:
+                            # Avoid re-fuzzing if we have a cached result and caching is enabled.
+                            compiled_fuzzed_target = self._cached_fuzzer_applications[cache_key]
+                        else:
+                            # Apply fuzzers
+                            code = dedent(inspect.getsource(t))
+                            target_ast = ast.parse(code)
+                            funcbody_steps = target_ast.body[0].body  # Assume we've got a module object containing only a function definition.
 
-                            if non_inline_changed_steps:
-                                funcbody_steps = non_inline_changed_steps
+                            for fuzzer in fuzzers:
+                                non_inline_changed_steps = fuzzer(funcbody_steps, *args, **kwargs)
 
-                        target_ast.body[0].body = funcbody_steps
-                        compiled_fuzzed_target = compile(target_ast, "<ast>", "exec")
+                                if non_inline_changed_steps:
+                                    funcbody_steps = non_inline_changed_steps
+
+                            target_ast.body[0].body = funcbody_steps
+                            compiled_fuzzed_target = compile(target_ast, "<ast>", "exec")
+                            if self.cache_fuzz_results:
+                                self._cached_fuzzer_applications[cache_key] = compiled_fuzzed_target
+
                         if not isinstance(t, FunctionType):
                             t.__func__.__code__ =  compiled_fuzzed_target.co_consts[0]
                         else:
@@ -223,7 +235,7 @@ class AspectHooks:
     def __exit__(self, *args, **kwargs):
         builtins.__import__ = self.old_import
 
-    def __init__(self, ) -> None:
+    def __init__(self) -> None:
         # TODO: add options for instance-based configuration.
         # step 1: make class-level attributes default attributes here
         # step 2: add options as parameters here, set them for an instance

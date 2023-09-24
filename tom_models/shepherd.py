@@ -28,7 +28,7 @@ class ShepherdConfig:
         # Flags to filter out useful things
         self.remove_developers = True
         self.remove_beta_testers = False
-        self.include_only_active_users = True
+        self.include_only_active_users = False
 
         # Functions that take a game / user and return the thing to sort on. For example, sorting by skill points below.
         self.user_sort_by = lambda user: user['skill_points']
@@ -147,7 +147,6 @@ class Shepherd:
         clear_pure_cache()
         self.config = new_config
 
-    @lru_cache()
     def user_by_username(self, username):
         '''
         Give me a username and I'll give you the player document associated with it, or None if it doesn't exist.
@@ -155,7 +154,6 @@ class Shepherd:
         matches = list(filter(lambda p: p['Username'] == username, self.actual_players()))
         return None if matches is [] else matches[0]
 
-    @lru_cache()
     def actual_players(self):
         '''
         I'm a list of things in the players collection that are actually players.
@@ -170,12 +168,15 @@ class Shepherd:
         matches = filter(user_filter, self.actual_players())
         return list(matches)
 
-    def completed_games_by_user(self):
+    def completed_games_by_user(self, gameset=None):
         '''
         A dictionary where keys are usernames and values are lists of good completed games by that user.
         '''
+        if gameset is None:
+            gameset = self.cache['completed_games']
+
         activity = dict()
-        for game in filter(lambda g: not game_doc_was_abandoned(g), self.cache['completed_games']):
+        for game in filter(lambda g: not game_doc_was_abandoned(g), gameset):
             if 'usernames' in game.keys():
                 activity[game['usernames'][0]] = activity.get(game['usernames'][0], []) + [game]
                 activity[game['usernames'][1]] = activity.get(game['usernames'][1], []) + [game]
@@ -222,7 +223,7 @@ class Shepherd:
         # First, if we've been told to get active users, then filter inactive users out.
         if self.config.include_only_active_users:
             # Active players can be detected from the games they have completed.
-            active_player_usernames = self.completed_game_count_by_user().keys()
+            active_player_usernames = self.once_active_users()
             active_players = filter(lambda player: player['Username'] in active_player_usernames,
                                          current_user_set)
             current_user_set = active_players
