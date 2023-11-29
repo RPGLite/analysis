@@ -1,0 +1,76 @@
+(creilly2) found 5 season 2 games.
+(timri) found 270 season 2 games.
+(cwallis) found 0 season 2 games.
+skipping cwallis, as they only played 0 games.
+(ECDr) found 313 season 2 games.
+(kubajj) found 0 season 2 games.
+skipping kubajj, as they only played 0 games.
+(Ellen) found 352 season 2 games.
+(creilly1) found 129 season 2 games.
+(basta) found 145 season 2 games.
+(Frp97) found 809 season 2 games.
+(Etess) found 0 season 2 games.
+skipping Etess, as they only played 0 games.
+(l17r) found 1004 season 2 games.
+(georgedo) found 97 season 2 games.
+(elennon) found 64 season 2 games.
+(Fbomb) found 19 season 2 games.
+(apropos0) found 733 season 2 games.
+(Deanerbeck) found 429 season 2 games.
+(sstein) found 194 season 2 games.
+(tanini) found 8 season 2 games.
+(Jamie) found 0 season 2 games.
+skipping Jamie, as they only played 0 games.
+(Nari) found 304 season 2 games.
+(Paddy) found 14 season 2 games.
+(creilly2) S1: Stat 0.9796694963003718	with pval 5.249608014886981e-11
+(creilly2) S2: Stat 0.985184366143778	with pval 1.0010556444678938e-07
+
+(timri) S1: Stat 0.9564144928693535	with pval 5.797919688404042e-09
+(timri) S2: Stat 0.9959919678390986	with pval 3.1170677281801914e-08
+
+(ECDr) S1: Stat 0.9765646287442737	with pval 2.7133288118637723e-12
+(ECDr) S2: Stat 1.0	with pval 1.231558254354619e-07
+
+(Ellen) S1: Stat 0.9791208740244551	with pval 2.950265894417993e-12
+(Ellen) S2: Stat 0.9687148195979899	with pval 9.360916890069482e-12
+
+(creilly1) S1: Stat 0.9502446840518147	with pval 1.5902703173144888e-11
+(creilly1) S2: Stat 0.9950859653474028	with pval 5.7020695573988095e-08
+
+(basta) S1: Stat 0.9843984191769197	with pval 3.532810027349866e-11
+(basta) S2: Stat 0.9541269048563366	with pval 1.2506957481576594e-11
+
+(Frp97) S1: Stat 0.9744805811819829	with pval 1.8651136050223395e-09
+(Frp97) S2: Stat 0.9893045053244826	with pval 8.285638099074469e-09
+
+(l17r) S1: Stat 0.9659377383070371	with pval 1.211504146502644e-08
+(l17r) S2: Stat 0.99659283506935	with pval 1.6985642457136696e-08
+
+(georgedo) S1: Stat 0.966402573430935	with pval 7.751420184170389e-11
+(georgedo) S2: Stat 0.9806490064582719	with pval 3.4107257906828693e-10
+
+(elennon) S1: Stat 0.9739463170891035	with pval 1.3297191901143953e-11
+(elennon) S2: Stat 0.9053574604251852	with pval 5.78446898273358e-10
+
+(Fbomb) S1: Stat 0.9839131599805843	with pval 1.1542973899562161e-08
+(Fbomb) S2: Stat 0.9630868246861536	with pval 2.243342049839241e-08
+
+(apropos0) S1: Stat 0.9863526581629211	with pval 1.7657293944859202e-11
+(apropos0) S2: Stat 0.981816665148827	with pval 2.254306065331621e-11
+
+(Deanerbeck) S1: Stat 0.9776923610938038	with pval 8.907253975039482e-10
+(Deanerbeck) S2: Stat 0.9906394195807721	with pval 2.3811482828605033e-11
+
+(sstein) S1: Stat 0.9755464218867489	with pval 1.0669472381036078e-08
+(sstein) S2: Stat 1.0	with pval 4.2651098993938544e-08
+
+(tanini) S1: Stat 0.96983779377238	with pval 1.1792092120162445e-11
+(tanini) S2: Stat 0.9757048734120375	with pval 9.992935987373002e-08
+
+(Nari) S1: Stat 0.9910712498212336	with pval 2.1362048088275127e-09
+(Nari) S2: Stat 0.9926469590685226	with pval 2.661246053776497e-10
+
+(Paddy) S1: Stat 0.9937823231397931	with pval 9.282543298144483e-10
+(Paddy) S2: Stat 0.989743318610787	with pval 2.582210122313199e-08
+
