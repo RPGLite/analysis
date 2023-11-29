@@ -126,7 +126,7 @@ class ModelParameters:
         else:
             real,synthetic = datasets[0]
 
-        return Result(self, real, synthetic, correlation_metric, testing)
+        return Result(self, real, synthetic, correlation_metric, testing, season)
         
         
 @dataclass

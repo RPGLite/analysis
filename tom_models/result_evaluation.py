@@ -1,14 +1,16 @@
-from experiment_base import Result, ModelParameters
+from experiment_base import Result, ModelParameters, get_games_for_players, change_season
+from experiments import compare_s1_s2
 from functools import reduce
 from copy import copy
 from scipy.stats import kendalltau
 from multiprocessing import Pool
+from random import shuffle
 import pathlib
 import argparse
 import os
 import pickle
 
-def collect_and_analyse(result_dirs, season=1):
+def collect_and_analyse(result_dirs, season=1, viability_budget=1, season_provided_indicates_result_season=False):
     '''
     Takes a list of directories  containing .pickle-format results of experimental runs
     and an optional season (seasons other than `1` not currently supported).
@@ -23,23 +25,54 @@ def collect_and_analyse(result_dirs, season=1):
                 if filename.endswith('.pickle'): 
                     result_files.append(os.sep.join([dirpath, filename]))
     
+    # Grab params that worked for S1.
     processPool = Pool(10)
-    globallyViableParams = processPool.map(analyse_result_file, result_files)
+    globallyViableParams = processPool.starmap(analyse_result_file, [(res_file, season if season_provided_indicates_result_season else 1, viability_budget) for res_file in result_files])
 
-    # TODO rework for multiprocessing-style result analysis
-    for user, results, pval, stat in globallyViableParams:
-        print(f"Getting pval<{pval}, corr>{stat} for {user}: {results}")
-        print()
-        print()
-    
+    # If we're running experiments on S1, we're finished already!
+    if season == 1:
+        # TODO rework for multiprocessing-style result analysis
+        for user, results, pval, stat in globallyViableParams:
+            separator='\n\t'
+            print(f"For user {user}, got results: \n\t{map(str, results).join(separator)}")
+            print()
+            print()
+    # If we're running experiments on S2, we need to see whether the parameters we picked up still work for S2.
+    # TODO currently this is a bit naive. Ideally we'd amend `analyse_result_file` to give us _all_ viable results, in case one doesn't port well, but others do.
+    elif season == 2:
 
-def analyse_result_file(filepath:str, season:int=1) -> (str, list[Result], float, float):
+        change_season(2)
+        from experiment_base import shepherd
+
+        s2_results = list()
+        for user, results, pval, stat in globallyViableParams:
+            games = get_games_for_players([user], shepherd)
+            shuffle(games)
+            print(f"({user}) found " + str(len(games)) + " season 2 games.")
+
+            if len(games) > 0:
+                for result in results:
+                    # TODO: confirm properly that these don't _need_ to be folds. They shouldn't; we're running Testing so should only have to set testing data. Should confirm properly (currently working out of an unconfigured vim instance and it's arduous).
+                    result.params.testing_data = games
+                    result.params.training_data = games
+                    s2_results.append([(user, result, pval, stat), processPool.apply_async(result.params.run_experiment, (True, 2, kendalltau))])
+            else:
+                print(f"skipping {user}, as they only played {len(games)} games.")
+        for s1_result, s2_job in s2_results:
+            user, s1_old_results, s1_pval, s1_stat = s1_result
+            s2_results = s2_job.get()
+            print(f"({user}) S1: Stat {s1_old_results.statistic}\twith pval {s1_old_results.pval}")
+            print(f"({user}) S2: Stat {s2_results.statistic}\twith pval {s2_results.pval}")
+            print()
+
+def analyse_result_file(filepath:str, season:int=1, viability_budget:int=1) -> (str, list[Result], float, float):
     '''
     Analyses results in a file at `filepath` and returns…:
         - username
         - all params that are viable for all folds & against the total dataset
         - and the pval threshold at which we find those params
         - the stat threshold at which we find those params.
+    viability_budget is the number of pval + stat combinations which yield significant results to return. In other words, when the budget is 1, The first pval + stat combo yielding statistically significant results will be the only one for which results will be returned; if the budget is 2, a second pair will be found before returning; if 3, another still; and so on. A budget of -1 indicates that all results should be returned. 
     '''
     # Unpickle results and pop them into a dict, where keys are players and values are relevant results.
     all_results = list()
@@ -100,23 +133,22 @@ def analyse_result_file(filepath:str, season:int=1) -> (str, list[Result], float
             test_against_all_player_games = params_to_mutate.run_experiment(testing=True, correlation_metric=kendalltau, season=season)
             if test_against_all_player_games.within_acceptable_bounds(pval, stat):
                 globally_viable_params.append(test_against_all_player_games)
+
         if len(globally_viable_params) > 0:
-            break
+            viability_budget = viability_budget - 1
+            if viability_budget == 0:
+                break
 
     return username, globally_viable_params, pval, stat
 
-
-
-        
-
-
-    
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Loads and analyses experimental results')
     parser.add_argument('result_dirs', metavar='result_dir', nargs='+', help='a directory containing results of an experimental run in .pickle format.')
     parser.add_argument('-s', '--season', default=1)
+    parser.add_argument('-l', '--levels', default=1, help='Number of pval + stat combinations to find viable results for in a given dataset before stopping search. Default 1. Setting -1 searches every possible combination.')
+    parser.add_argument('-e', '--experiment', default=1, help='The experiment being run. 1 indicates the data being analysed is just a dataset we\'re looking for correlation in; 2 indicates the data being analysed is to be evaluated as to its predictive powers for another season. Default 1. Set this to something non-default *ONLY* if you\'ve generated an S2 dataset and want to see whether it correlates to empirical play.')
     args = parser.parse_args()
 
-    collect_and_analyse(args.result_dirs, args.season)
+    collect_and_analyse(args.result_dirs, int(args.season), int(args.levels), int(args.experiment) != 1)
 

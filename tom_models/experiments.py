@@ -20,8 +20,8 @@ def compare_s1_s2(s1_pickled_filename):
     from aspects import fuzz_nonlocalMoveLookup
     #AspectHooks.add_fuzzer('get_moves_from_table', fuzz_nonlocalMoveLookup)
 
-    change_season(2)
     from experiment_base import shepherd, get_games_for_players
+    change_season(2)
 
     games = get_games_for_players([username], shepherd)
     shuffle(games)

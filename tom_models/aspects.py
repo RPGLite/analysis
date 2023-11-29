@@ -286,7 +286,7 @@ def hyperbolic_score(char_record, discounting_degree, unplayed_coefficient=0):
 
         outcome_score_mapping = {
             True: 1,
-            False: -1,
+            False: 0,
             None: 0
         }
         outcome_delay_mapping = {
@@ -306,7 +306,7 @@ def hyperbolic_score(char_record, discounting_degree, unplayed_coefficient=0):
         import sys
         print(e.__str__() + " on line {}".format(sys.exc_info()[-1].tb_lineno))
 
-def hyperbolic_character_choice_from_win_record(next_around, target, actor, gamedoc, environment, discounting_degree=1, score_type='hyperbolic', **kwargs):
+def hyperbolic_character_choice_from_win_record(next_around, target, actor, gamedoc, environment, discounting_degree=0, score_type='hyperbolic', **kwargs):
 
     try:
         initialise_win_record(actor, environment)

@@ -109,7 +109,7 @@ if __name__ == "__main__":
     except ValueError:
         pass
 
-    with Pool(11, initializer=lambda : os.nice(-20)) as pool:
+    with Pool(12, initializer=lambda : os.nice(-20)) as pool:
         experiment_procs = list()
         for expname in args.learning_models:
             if expname not in learning_models.keys():
